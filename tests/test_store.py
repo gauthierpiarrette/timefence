@@ -67,7 +67,7 @@ class TestStore:
         f.write_text("original")
 
         h1 = store.cached_content_hash(f)
-        f.write_text("modified")
+        f.write_text("modified content that is longer")
         h2 = store.cached_content_hash(f)
         assert h1 != h2
 
