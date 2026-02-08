@@ -1,21 +1,9 @@
-# Timefence Website
+# Timefence Documentation
 
-This directory contains the landing page for Timefence.
+This directory contains the documentation site for Timefence, deployed via GitHub Pages.
 
 ## Structure
-- `index.html`: Single-page responsive landing page (Tailwind CSS via CDN).
+- `index.html`: Landing page with hero, features, and code example.
+- `documentation.html`: Full documentation — API reference, CLI reference, guides, configuration, and error reference.
 - `favicon.svg`: Brand icon.
-
-## Deployment (GitHub Pages)
-
-1. Go to your repository Settings > Pages.
-2. Source: `Deploy from a branch`.
-3. Branch: `main`, Folder: `/website` (if allowed) or root.
-   
-   *Note: If GitHub Pages requires the root directory, you might need to push the contents of this folder to a separate `gh-pages` branch.*
-
-   **Recommended workflow for monorepo:**
-   Use a GitHub Action to deploy this folder to `gh-pages` branch.
-
-## Development
-Just open `index.html` in your browser. No build step required.
+- `.nojekyll`: Tells GitHub Pages to serve files as-is (no Jekyll processing).
