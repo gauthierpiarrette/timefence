@@ -48,7 +48,8 @@ all = [
 timefence = "timefence.cli:cli"
 
 [project.urls]
-Homepage = "https://github.com/gauthierpiarrette/timefence"
+Homepage = "https://timefence.dev"
+Documentation = "https://timefence.dev/documentation.html"
 Repository = "https://github.com/gauthierpiarrette/timefence"
 
 [tool.hatch.build.targets.wheel]
