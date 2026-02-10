@@ -1,5 +1,11 @@
 # Timefence
 
+[![CI](https://github.com/gauthierpiarrette/timefence/actions/workflows/ci.yml/badge.svg)](https://github.com/gauthierpiarrette/timefence/actions/workflows/ci.yml)
+[![codecov](https://codecov.io/gh/gauthierpiarrette/timefence/graph/badge.svg)](https://codecov.io/gh/gauthierpiarrette/timefence)
+[![PyPI](https://img.shields.io/pypi/v/timefence)](https://pypi.org/project/timefence/)
+[![Python](https://img.shields.io/pypi/pyversions/timefence)](https://pypi.org/project/timefence/)
+[![License: MIT](https://img.shields.io/badge/License-MIT-green.svg)](https://opensource.org/licenses/MIT)
+
 **Temporal correctness layer for ML training data.**
 
 Timefence guarantees no future data leakage, audits existing pipelines, and builds point-in-time correct datasets — locally, with zero infrastructure, in seconds.
