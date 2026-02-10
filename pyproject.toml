@@ -68,7 +68,7 @@ timefence = "timefence.cli:cli"
 
 [project.urls]
 Homepage = "https://timefence.dev"
-Documentation = "https://timefence.dev/documentation.html"
+Documentation = "https://timefence.dev/documentation"
 Repository = "https://github.com/gauthierpiarrette/timefence"
 Issues = "https://github.com/gauthierpiarrette/timefence/issues"
 Changelog = "https://github.com/gauthierpiarrette/timefence/blob/main/CHANGELOG.md"
