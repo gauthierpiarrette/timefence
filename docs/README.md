@@ -5,5 +5,4 @@ This directory contains the documentation site for Timefence, deployed via GitHu
 ## Structure
 - `index.html`: Landing page with hero, features, and code example.
 - `documentation.html`: Full documentation — API reference, CLI reference, guides, configuration, and error reference.
-- `favicon.svg`: Brand icon.
 - `.nojekyll`: Tells GitHub Pages to serve files as-is (no Jekyll processing).
