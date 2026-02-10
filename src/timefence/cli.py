@@ -103,104 +103,15 @@ def _load_features_from_file(path: str) -> list:
 
 
 def _load_config() -> dict[str, Any]:
-    """Load timefence.yaml if it exists.
+    """Load timefence.yaml if it exists."""
+    import yaml
 
-    Tries pyyaml first, falls back to a simple key-value parser for
-    basic fields. This avoids requiring pyyaml as a hard dependency.
-    """
     for name in ("timefence.yaml", "timefence.yml"):
         if not Path(name).exists():
             continue
         text = Path(name).read_text()
-        try:
-            import yaml
-
-            return yaml.safe_load(text) or {}
-        except ImportError:
-            # Minimal YAML parser for the subset we generate in timefence init/quickstart
-            return _parse_simple_yaml(text)
+        return yaml.safe_load(text) or {}
     return {}
-
-
-def _parse_simple_yaml(text: str) -> dict[str, Any]:
-    """Parse the simple subset of YAML that timefence.yaml uses.
-
-    Handles: scalars, lists (inline [a, b] and indented - items),
-    and one level of nested mappings. Comments are stripped.
-    """
-    result: dict[str, Any] = {}
-    current_key: str | None = None
-    current_dict: dict[str, Any] | None = None
-    current_list: list[str] | None = None
-
-    for raw_line in text.split("\n"):
-        # Strip comments
-        line = raw_line.split("#")[0].rstrip()
-        if not line.strip():
-            continue
-
-        indent = len(line) - len(line.lstrip())
-
-        # Top-level key: value
-        if indent == 0 and ":" in line:
-            # Flush any pending nested structure
-            if current_key and current_dict is not None:
-                result[current_key] = current_dict
-                current_dict = None
-            if current_key and current_list is not None:
-                result[current_key] = current_list
-                current_list = None
-
-            key, _, val = line.partition(":")
-            key = key.strip()
-            val = val.strip()
-            if not val:
-                current_key = key
-            elif val.startswith("[") and val.endswith("]"):
-                items = [
-                    v.strip().strip("'\"") for v in val[1:-1].split(",") if v.strip()
-                ]
-                result[key] = items
-                current_key = None
-            elif (val.startswith('"') and val.endswith('"')) or (
-                val.startswith("'") and val.endswith("'")
-            ):
-                result[key] = val[1:-1]
-            else:
-                result[key] = val
-                current_key = None
-            continue
-
-        # Indented list item
-        if indent > 0 and line.strip().startswith("- "):
-            item = line.strip()[2:].strip().strip("'\"")
-            if current_list is None:
-                current_list = []
-            current_list.append(item)
-            continue
-
-        # Indented key: value (nested dict)
-        if indent > 0 and ":" in line and current_key:
-            if current_dict is None:
-                current_dict = {}
-            k, _, v = line.strip().partition(":")
-            k = k.strip()
-            v = v.strip().strip("'\"")
-            if v.startswith("[") and v.endswith("]"):
-                current_dict[k] = [
-                    x.strip().strip("'\"") for x in v[1:-1].split(",") if x.strip()
-                ]
-            elif v:
-                current_dict[k] = v
-            continue
-
-    # Flush final
-    if current_key and current_dict is not None:
-        result[current_key] = current_dict
-    if current_key and current_list is not None:
-        result[current_key] = current_list
-
-    return result
 
 
 def _try_load_config() -> dict[str, Any]:
