@@ -26,7 +26,7 @@ class TestQuoteIdentifier:
         assert _qi("") == '""'
 
     def test_name_with_single_quotes(self):
-        assert _qi("it's") == "\"it's\""
+        assert _qi("it's") == '"it\'s"'
 
     def test_semicolon_injection(self):
         result = _qi('"; DROP TABLE users; --')

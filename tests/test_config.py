@@ -17,9 +17,7 @@ class TestLoadConfig:
     def test_loads_valid_yaml(self, tmp_path, monkeypatch):
         monkeypatch.chdir(tmp_path)
         (tmp_path / "timefence.yaml").write_text(
-            "name: my-project\n"
-            "version: '1.0'\n"
-            "store: .timefence/\n"
+            "name: my-project\nversion: '1.0'\nstore: .timefence/\n"
         )
         config = _load_config()
         assert config["name"] == "my-project"
@@ -53,7 +51,7 @@ class TestLoadConfig:
     def test_features_list(self, tmp_path, monkeypatch):
         monkeypatch.chdir(tmp_path)
         (tmp_path / "timefence.yaml").write_text(
-            "features:\n" "  - features.py\n" "  - extra_features.py\n"
+            "features:\n  - features.py\n  - extra_features.py\n"
         )
         config = _load_config()
         assert config["features"] == ["features.py", "extra_features.py"]
@@ -61,10 +59,7 @@ class TestLoadConfig:
     def test_defaults_section(self, tmp_path, monkeypatch):
         monkeypatch.chdir(tmp_path)
         (tmp_path / "timefence.yaml").write_text(
-            "defaults:\n"
-            "  max_lookback: 180d\n"
-            "  join: inclusive\n"
-            "  on_missing: skip\n"
+            "defaults:\n  max_lookback: 180d\n  join: inclusive\n  on_missing: skip\n"
         )
         config = _load_config()
         assert config["defaults"]["max_lookback"] == "180d"
