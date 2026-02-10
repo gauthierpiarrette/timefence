@@ -936,6 +936,22 @@ def build(
         )
 
     flat_features = flatten_features(features)
+
+    # Validate feature names are unique
+    seen_names: dict[str, int] = {}
+    for feat in flat_features:
+        seen_names[feat.name] = seen_names.get(feat.name, 0) + 1
+    duplicates = {n: c for n, c in seen_names.items() if c > 1}
+    if duplicates:
+        dup_str = ", ".join(f"'{n}' (x{c})" for n, c in duplicates.items())
+        raise TimefenceConfigError(
+            f"Duplicate feature names: {dup_str}.\n\n"
+            "  Each feature must have a unique name. Duplicate names would cause\n"
+            "  one feature to silently overwrite another.\n\n"
+            "  Fix: Set an explicit name on each feature:\n"
+            '    timefence.Feature(..., name="unique_name")\n'
+        )
+
     for feat in flat_features:
         if feat.embargo >= max_lookback_td:
             from timefence.errors import config_error_embargo_lookback
@@ -1153,9 +1169,14 @@ def build(
             )
             try:
                 conn.execute(join_sql)
-            except duckdb.Error:
+            except duckdb.Error as exc:
                 # ASOF fallback: if ASOF fails, retry with ROW_NUMBER
                 if strategy == "asof":
+                    logger.debug(
+                        "ASOF JOIN failed for %s, falling back to ROW_NUMBER: %s",
+                        feat.name,
+                        exc,
+                    )
                     join_sql = _build_row_number_join_sql(
                         feat,
                         feat_table,
@@ -1688,8 +1709,13 @@ def _audit_rebuild(
                 )
                 try:
                     conn.execute(join_sql)
-                except duckdb.Error:
+                except duckdb.Error as exc:
                     # Fallback to ROW_NUMBER
+                    logger.debug(
+                        "ASOF JOIN failed for %s in audit, falling back to ROW_NUMBER: %s",
+                        feat.name,
+                        exc,
+                    )
                     join_sql = _build_row_number_join_sql(
                         feat,
                         feat_tbl,

@@ -897,6 +897,46 @@ class TestBuildEdgeCases:
         assert "feat_a__val" in cols
         assert "feat_b__val" in cols
 
+    def test_build_duplicate_feature_names_raises(self, tmp_path):
+        """Two features with the same name must raise, not silently overwrite."""
+        conn = duckdb.connect()
+        try:
+            conn.execute(f"""
+                COPY (
+                    SELECT 1 AS uid, TIMESTAMP '2024-06-01' AS lt, true AS y
+                ) TO '{tmp_path}/labels.parquet' (FORMAT PARQUET)
+            """)
+            conn.execute(f"""
+                COPY (
+                    SELECT 1 AS uid, TIMESTAMP '2024-05-01' AS ts, 'A' AS val
+                ) TO '{tmp_path}/src.parquet' (FORMAT PARQUET)
+            """)
+        finally:
+            conn.close()
+
+        labels = timefence.Labels(
+            path=str(tmp_path / "labels.parquet"),
+            keys="uid",
+            label_time="lt",
+            target="y",
+        )
+        source = timefence.Source(
+            path=str(tmp_path / "src.parquet"),
+            keys="uid",
+            timestamp="ts",
+        )
+        feat_a = timefence.Feature(source=source, columns=["val"], name="same_name")
+        feat_b = timefence.Feature(source=source, columns=["val"], name="same_name")
+
+        with pytest.raises(
+            timefence.errors.TimefenceConfigError, match="Duplicate feature names"
+        ):
+            build(
+                labels=labels,
+                features=[feat_a, feat_b],
+                output=str(tmp_path / "out.parquet"),
+            )
+
 
 class TestAuditEdgeCases:
     """Edge cases for the audit pipeline."""
