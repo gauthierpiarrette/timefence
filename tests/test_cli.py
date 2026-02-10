@@ -22,6 +22,36 @@ class TestCLIVersion:
         assert "0.9.0" in result.output
 
 
+class TestCLIVerboseDebug:
+    def test_verbose_flag_accepted(self, runner, tmp_path):
+        with runner.isolated_filesystem(temp_dir=tmp_path):
+            result = runner.invoke(cli, ["-v", "--version"])
+            assert result.exit_code == 0
+
+    def test_debug_flag_accepted(self, runner, tmp_path):
+        with runner.isolated_filesystem(temp_dir=tmp_path):
+            result = runner.invoke(cli, ["--debug", "--version"])
+            assert result.exit_code == 0
+
+    def test_verbose_build_emits_sql_logs(self, runner, tmp_path, caplog):
+        import logging
+
+        with runner.isolated_filesystem(temp_dir=tmp_path):
+            runner.invoke(cli, ["quickstart", "proj", "--minimal"])
+            import os
+
+            os.chdir("proj")
+            with caplog.at_level(logging.INFO, logger="timefence.engine"):
+                result = runner.invoke(cli, ["-v", "build", "-o", "out.parquet"])
+            assert result.exit_code == 0
+            log_text = caplog.text
+            assert (
+                "Feature SQL" in log_text
+                or "Join SQL" in log_text
+                or "Labels:" in log_text
+            )
+
+
 class TestCLIInit:
     def test_init(self, runner, tmp_path):
         with runner.isolated_filesystem(temp_dir=tmp_path):
