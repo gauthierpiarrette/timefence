@@ -18,7 +18,7 @@ From `pip install` to "I found leakage in my pipeline" in under 3 minutes.
 pip install timefence
 ```
 
-Three runtime dependencies: `duckdb`, `click`, `rich`. Python 3.9+.
+Four runtime dependencies: `duckdb`, `click`, `rich`, `pyyaml`. Python 3.9+.
 
 ## Quick Start
 
