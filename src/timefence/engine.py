@@ -1323,17 +1323,18 @@ def build(
                         renames.append(_qi(name))
                 final_sql = f"SELECT {', '.join(renames)} FROM ({final_sql})"
 
-        # Step 5: Write output
+        # Step 5: Materialize result, write output, collect stats
         _emit("Writing output")
+        conn.execute(f"CREATE TEMP TABLE __result AS {final_sql}")
+        result_cols = [c[0] for c in conn.execute("DESCRIBE __result").fetchall()]
+        result_count = conn.execute("SELECT COUNT(*) FROM __result").fetchone()[0]
+
         if output is not None:
             output = str(output)
             Path(output).parent.mkdir(parents=True, exist_ok=True)
-            conn.execute(f"COPY ({final_sql}) TO {_ql(output)} (FORMAT PARQUET)")
-
-        # Collect stats
-        result_df = conn.execute(final_sql)
-        result_cols = [desc[0] for desc in result_df.description]
-        result_count = conn.execute(f"SELECT COUNT(*) FROM ({final_sql})").fetchone()[0]
+            conn.execute(
+                f"COPY (SELECT * FROM __result) TO {_ql(output)} (FORMAT PARQUET)"
+            )
 
         feature_stats = {}
         for feat in flat_features:
@@ -1345,7 +1346,7 @@ def build(
                     first_col = output_cols[0]
                 try:
                     null_count = conn.execute(
-                        f"SELECT COUNT(*) FROM ({final_sql}) WHERE {_qi(first_col)} IS NULL"
+                        f"SELECT COUNT(*) FROM __result WHERE {_qi(first_col)} IS NULL"
                     ).fetchone()[0]
                 except duckdb.Error as exc:
                     logger.debug(
