@@ -71,9 +71,20 @@ def _load_features_from_file(path: str) -> list:
         err_console.print(f"[red]Error: Feature file '{file_path}' not found.[/red]")
         sys.exit(1)
 
-    spec = importlib.util.spec_from_file_location("features_module", path_obj)
-    module = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(module)
+    try:
+        spec = importlib.util.spec_from_file_location("features_module", path_obj)
+        if spec is None or spec.loader is None:
+            err_console.print(
+                f"[red]Error: Cannot load '{file_path}' as a Python module.[/red]"
+            )
+            sys.exit(1)
+        module = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(module)
+    except Exception as exc:
+        err_console.print(
+            f"[red]Error loading feature file '{file_path}':[/red]\n  {exc}"
+        )
+        sys.exit(1)
 
     features = []
     for name in dir(module):
@@ -117,8 +128,15 @@ def _load_config() -> dict[str, Any]:
 def _try_load_config() -> dict[str, Any]:
     """Try to load config, return empty dict on failure."""
     try:
-        return _load_config()
-    except (FileNotFoundError, ValueError, KeyError) as exc:
+        config = _load_config()
+        if not isinstance(config, dict):
+            logger.warning(
+                "timefence.yaml must contain a YAML mapping, got %s. Ignoring.",
+                type(config).__name__,
+            )
+            return {}
+        return config
+    except Exception as exc:
         logger.debug("Could not load timefence.yaml: %s", exc)
         return {}
 
@@ -239,7 +257,7 @@ def inspect(path: str, json_output: bool):
 
         for col_name, col_type, *_ in columns:
             unique_count = conn.execute(
-                f'SELECT COUNT(DISTINCT "{col_name}") FROM __data'
+                f"SELECT COUNT(DISTINCT {_qi(col_name)}) FROM __data"
             ).fetchone()[0]
             pct = unique_count / row_count * 100 if row_count > 0 else 0
 
