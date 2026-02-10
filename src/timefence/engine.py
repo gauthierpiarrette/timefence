@@ -13,7 +13,7 @@ from collections.abc import Sequence
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, Callable
 
 import duckdb
 
@@ -962,9 +962,20 @@ def build(
     splits: dict[str, tuple[str, str]] | None = None,
     store: Store | None = None,
     flatten_columns: bool = False,
+    progress: Callable[[str], None] | None = None,
 ) -> BuildResult:
-    """Build a point-in-time correct training set."""
+    """Build a point-in-time correct training set.
+
+    Args:
+        progress: Optional callback invoked with a status message at each step.
+            Useful for progress bars. Called with messages like "Loading labels",
+            "Computing feature_name", "Joining feature_name", "Writing output".
+    """
     start_time = time.time()
+
+    def _emit(msg: str) -> None:
+        if progress is not None:
+            progress(msg)
 
     max_lookback_td = parse_duration(max_lookback) or timedelta(
         days=DEFAULT_MAX_LOOKBACK_DAYS
@@ -1070,6 +1081,7 @@ def build(
 
     try:
         # Step 1: Register labels
+        _emit("Loading labels")
         if labels.path is not None:
             _load_data_as_table(conn, labels.path, "__labels_raw")
         elif labels.df is not None:
@@ -1118,7 +1130,8 @@ def build(
         feature_cache_keys: list[str] = []
         feature_cache_status: dict[str, bool] = {}  # name -> was_cached
 
-        for feat in flat_features:
+        for i, feat in enumerate(flat_features, 1):
+            _emit(f"Computing {feat.name} ({i}/{len(flat_features)})")
             src_name = feat.source.name
             if src_name not in registered_sources:
                 table_name = f"__src_{_safe_name(src_name)}"
@@ -1183,7 +1196,8 @@ def build(
                 _validate_timezones(conn, labels.label_time, feat, feat_table)
 
         # Step 3: Point-in-time joins
-        for feat in flat_features:
+        for i, feat in enumerate(flat_features, 1):
+            _emit(f"Joining {feat.name} ({i}/{len(flat_features)})")
             feat_table, output_cols = feature_tables[feat.name]
             join_sql, strategy = _build_join_sql(
                 feat,
@@ -1296,6 +1310,7 @@ def build(
                 final_sql = f"SELECT {', '.join(renames)} FROM ({final_sql})"
 
         # Step 5: Write output
+        _emit("Writing output")
         if output is not None:
             output = str(output)
             Path(output).parent.mkdir(parents=True, exist_ok=True)
@@ -1330,6 +1345,7 @@ def build(
                 }
 
         # Step 6: Post-build verification
+        _emit("Verifying temporal correctness")
         audit_passed = True
         for feat in flat_features:
             prefix = feat.name

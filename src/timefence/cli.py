@@ -609,22 +609,61 @@ def build(
 
     store = _resolve_store(config)
 
-    result = do_build(
-        labels=labels_obj,
-        features=features,
-        output=output,
-        max_lookback=max_lookback,
-        max_staleness=max_staleness,
-        join=join_mode,
-        on_missing=on_missing,
-        splits=splits_dict,
-        store=store,
-        flatten_columns=flatten,
-    )
-
     if json_output:
+        result = do_build(
+            labels=labels_obj,
+            features=features,
+            output=output,
+            max_lookback=max_lookback,
+            max_staleness=max_staleness,
+            join=join_mode,
+            on_missing=on_missing,
+            splits=splits_dict,
+            store=store,
+            flatten_columns=flatten,
+        )
         click.echo(json.dumps(result.manifest, indent=2, default=str))
     else:
+        from rich.progress import (
+            BarColumn,
+            MofNCompleteColumn,
+            Progress,
+            SpinnerColumn,
+            TextColumn,
+        )
+
+        n_features = len(features)
+        total_steps = (
+            2 * n_features + 3
+        )  # compute + join per feature, plus load/write/verify
+
+        with Progress(
+            SpinnerColumn(),
+            TextColumn("[bold]{task.description}"),
+            BarColumn(),
+            MofNCompleteColumn(),
+            console=console,
+            transient=True,
+        ) as progress_bar:
+            task = progress_bar.add_task("Building...", total=total_steps)
+
+            def _on_progress(msg: str) -> None:
+                progress_bar.update(task, advance=1, description=msg)
+
+            result = do_build(
+                labels=labels_obj,
+                features=features,
+                output=output,
+                max_lookback=max_lookback,
+                max_staleness=max_staleness,
+                join=join_mode,
+                on_missing=on_missing,
+                splits=splits_dict,
+                store=store,
+                flatten_columns=flatten,
+                progress=_on_progress,
+            )
+
         _print_build_result(result, labels_obj, features)
 
 
