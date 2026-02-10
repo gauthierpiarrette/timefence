@@ -13,9 +13,12 @@ from collections.abc import Sequence
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 import duckdb
+
+if TYPE_CHECKING:
+    from timefence.store import Store
 
 from timefence._constants import (
     CACHE_KEY_LENGTH,
@@ -692,6 +695,46 @@ def _validate_splits(
         logger.debug("Could not validate split boundaries: %s", exc)
 
 
+def _compute_feature_table(
+    conn: duckdb.DuckDBPyConnection,
+    feat: Feature,
+    src_table: str,
+    feat_table: str,
+) -> tuple[str, list[str]]:
+    """Compute a feature table from source. Returns (feat_table, output_cols).
+
+    Handles all three modes (columns, sql, transform) and introspects the
+    resulting table to determine output columns. Shared between build() and audit().
+    """
+    all_sql: list[str] = []
+
+    if feat.mode == "transform":
+        result_rel = feat._transform(conn, src_table)  # noqa: F841
+        conn.execute(
+            f"CREATE OR REPLACE TEMP TABLE {feat_table} AS SELECT * FROM result_rel"
+        )
+    elif feat.mode == "sql":
+        feat_sql, _ = _build_feature_sql(feat, src_table)
+        create_sql = (
+            f"CREATE OR REPLACE TEMP TABLE {feat_table} AS SELECT * FROM {feat_sql}"
+        )
+        conn.execute(create_sql)
+        all_sql.append(create_sql)
+    else:
+        feat_sql, cols = _build_feature_sql(feat, src_table)
+        create_sql = f"CREATE OR REPLACE TEMP TABLE {feat_table} AS {feat_sql}"
+        conn.execute(create_sql)
+        all_sql.append(create_sql)
+        return all_sql, cols
+
+    # For sql/transform modes, introspect the table to get output columns
+    feat_cols = [c[0] for c in conn.execute(f"DESCRIBE {feat_table}").fetchall()]
+    output_cols = [
+        c for c in feat_cols if c != "feature_time" and c not in feat.source_keys
+    ]
+    return all_sql, output_cols
+
+
 def _build_feature_sql(
     feature: Feature,
     source_table: str,
@@ -917,7 +960,7 @@ def build(
     join: str = "strict",
     on_missing: str = DEFAULT_ON_MISSING,
     splits: dict[str, tuple[str, str]] | None = None,
-    store: Any = None,
+    store: Store | None = None,
     flatten_columns: bool = False,
 ) -> BuildResult:
     """Build a point-in-time correct training set."""
@@ -1116,39 +1159,10 @@ def build(
 
             if not cached:
                 feature_cache_status[feat.name] = False
-                if feat.mode == "transform":
-                    result_rel = feat._transform(conn, src_table)
-                    conn.execute(
-                        f"CREATE OR REPLACE TEMP TABLE {feat_table} AS SELECT * FROM result_rel"
-                    )
-                    feat_cols = [
-                        c[0] for c in conn.execute(f"DESCRIBE {feat_table}").fetchall()
-                    ]
-                    output_cols = [
-                        c
-                        for c in feat_cols
-                        if c != "feature_time" and c not in feat.source_keys
-                    ]
-                elif feat.mode == "sql":
-                    feat_sql, _ = _build_feature_sql(feat, src_table)
-                    create_sql = f"CREATE OR REPLACE TEMP TABLE {feat_table} AS SELECT * FROM {feat_sql}"
-                    conn.execute(create_sql)
-                    all_sql.append(create_sql)
-                    feat_cols = [
-                        c[0] for c in conn.execute(f"DESCRIBE {feat_table}").fetchall()
-                    ]
-                    output_cols = [
-                        c
-                        for c in feat_cols
-                        if c != "feature_time" and c not in feat.source_keys
-                    ]
-                else:
-                    feat_sql, output_cols = _build_feature_sql(feat, src_table)
-                    create_sql = (
-                        f"CREATE OR REPLACE TEMP TABLE {feat_table} AS {feat_sql}"
-                    )
-                    conn.execute(create_sql)
-                    all_sql.append(create_sql)
+                feat_sqls, output_cols = _compute_feature_table(
+                    conn, feat, src_table, feat_table
+                )
+                all_sql.extend(feat_sqls)
 
                 # Save to feature cache
                 if store is not None and fck is not None:
@@ -1681,35 +1695,7 @@ def _audit_rebuild(
                 src_tbl = registered[src_name]
                 feat_tbl = f"__feat_{_safe_name(feat.name)}"
 
-                if feat.mode == "transform":
-                    rel = feat._transform(conn, src_tbl)  # noqa: F841
-                    conn.execute(
-                        f"CREATE OR REPLACE TEMP TABLE {feat_tbl} AS SELECT * FROM rel"
-                    )
-                    feat_cols_desc = [
-                        c[0] for c in conn.execute(f"DESCRIBE {feat_tbl}").fetchall()
-                    ]
-                    out_cols = [
-                        c
-                        for c in feat_cols_desc
-                        if c != "feature_time" and c not in feat.source_keys
-                    ]
-                elif feat.mode == "sql":
-                    fsql, _ = _build_feature_sql(feat, src_tbl)
-                    conn.execute(
-                        f"CREATE OR REPLACE TEMP TABLE {feat_tbl} AS SELECT * FROM {fsql}"
-                    )
-                    feat_cols_desc = [
-                        c[0] for c in conn.execute(f"DESCRIBE {feat_tbl}").fetchall()
-                    ]
-                    out_cols = [
-                        c
-                        for c in feat_cols_desc
-                        if c != "feature_time" and c not in feat.source_keys
-                    ]
-                else:
-                    fsql, out_cols = _build_feature_sql(feat, src_tbl)
-                    conn.execute(f"CREATE OR REPLACE TEMP TABLE {feat_tbl} AS {fsql}")
+                _, out_cols = _compute_feature_table(conn, feat, src_tbl, feat_tbl)
 
                 feat_tables[feat.name] = (feat_tbl, out_cols)
 

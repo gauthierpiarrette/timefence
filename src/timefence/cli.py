@@ -57,7 +57,7 @@ def _parse_features_arg(features_arg: str) -> tuple[str, str | None]:
     return features_arg, None
 
 
-def _load_features_from_file(path: str) -> list:
+def _load_features_from_file(path: str) -> list[Any]:
     """Load Feature objects from a Python file.
 
     Supports 'path.py:feature_name' to filter to a single feature.
