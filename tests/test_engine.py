@@ -77,7 +77,7 @@ class TestBuildBasic:
             output=str(tmp_path / "out.parquet"),
         )
         manifest = result.manifest
-        assert manifest["timefence_version"] == "0.9.0"
+        assert manifest["timefence_version"] == "0.9.1"
         assert manifest["audit"]["passed"] is True
         assert "user_country" in manifest["features"]
 
