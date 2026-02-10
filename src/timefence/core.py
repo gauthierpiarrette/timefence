@@ -63,6 +63,10 @@ class Source:
         self.path = Path(path) if path is not None else None
         self.df = df
         self.keys = _as_list(keys)
+        if not self.keys:
+            raise TimefenceValidationError(
+                "Source 'keys' cannot be empty. Provide at least one entity key column."
+            )
         self.timestamp = timestamp
         self.name = name or (self.path.stem if self.path else "dataframe")
         self.delimiter = delimiter
@@ -206,6 +210,11 @@ class Feature:
                 self._columns = {c: c for c in columns}
             else:
                 self._columns = dict(columns)
+            if not self._columns:
+                raise TimefenceConfigError(
+                    "Feature 'columns' cannot be empty. "
+                    "Provide at least one column name."
+                )
             self._sql_text = None
             self._sql_path = None
             self._transform = None
@@ -263,11 +272,12 @@ class Feature:
 
     @property
     def source_keys(self) -> list[str]:
-        """Key column names as they appear in the source."""
-        src_keys = self.source.keys
-        if self.key_mapping:
-            return [self.key_mapping.get(k, k) for k in src_keys]
-        return src_keys
+        """Key column names as they appear in the source.
+
+        Note: key_mapping is applied by the engine during joins (label_key -> source_key),
+        not here. This returns the raw source key columns.
+        """
+        return list(self.source.keys)
 
     @property
     def definition_hash_input(self) -> str:
@@ -325,8 +335,16 @@ class Labels:
         self.path = Path(path) if path is not None else None
         self.df = df
         self.keys = _as_list(keys)
+        if not self.keys:
+            raise TimefenceValidationError(
+                "Labels 'keys' cannot be empty. Provide at least one entity key column."
+            )
         self.label_time = label_time
         self.target = _as_list(target)
+        if not self.target:
+            raise TimefenceValidationError(
+                "Labels 'target' cannot be empty. Provide at least one target column."
+            )
 
     def __repr__(self) -> str:
         src = str(self.path) if self.path else "DataFrame"

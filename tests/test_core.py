@@ -195,7 +195,9 @@ class TestFeature:
         feat = timefence.Feature(
             source=src, columns=["a"], key_mapping={"user_id": "customer_id"}
         )
-        assert feat.source_keys == ["customer_id"]
+        # source_keys returns raw source keys; key_mapping is applied by the engine
+        assert feat.source_keys == ["user_id"]
+        assert feat.key_mapping == {"user_id": "customer_id"}
 
 
 class TestLabels:
