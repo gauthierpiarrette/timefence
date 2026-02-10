@@ -83,6 +83,7 @@ def _create_test_data(
 
 
 @pytest.mark.skipif(not HAS_HYPOTHESIS, reason="hypothesis not installed")
+@pytest.mark.slow
 class TestTemporalInvariant:
     """Property tests for the core temporal correctness invariant."""
 

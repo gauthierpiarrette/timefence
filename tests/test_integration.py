@@ -413,10 +413,8 @@ class TestCSVSource:
 class TestQuickstartFlow:
     """The exact flow from the 3-minute wow section works end-to-end."""
 
-    def test_full_quickstart_flow(self, tmp_path):
-        import os
-
-        os.chdir(tmp_path)
+    def test_full_quickstart_flow(self, tmp_path, monkeypatch):
+        monkeypatch.chdir(tmp_path)
 
         # 1. Generate quickstart
         from timefence.quickstart import generate_quickstart

@@ -183,8 +183,11 @@ class TestBuildParameters:
             output=str(tmp_path / "out.parquet"),
             max_lookback="1d",
         )
+        matched = result.stats.feature_stats["user_country"]["matched"]
         missing = result.stats.feature_stats["user_country"]["missing"]
-        assert missing >= 0  # may have more missing with short lookback
+        # With a 1-day lookback, most features are too old to match
+        assert matched + missing == result.stats.row_count
+        assert missing > 0  # short lookback should cause some misses
 
 
 class TestBuildSchemaValidation:
