@@ -4,23 +4,40 @@ build-backend = "hatchling.build"
 
 [project]
 name = "timefence"
-version = "0.9.0"
+version = "0.9.1"
 description = "Temporal correctness layer for ML training data"
 readme = "README.md"
 license = "MIT"
 requires-python = ">=3.9"
 authors = [{ name = "Gauthier Piarrette" }]
+keywords = [
+    "machine-learning",
+    "data-leakage",
+    "point-in-time",
+    "temporal-correctness",
+    "feature-engineering",
+    "ml-training",
+    "data-quality",
+    "mlops",
+    "time-series",
+    "audit",
+]
 classifiers = [
     "Development Status :: 4 - Beta",
     "Intended Audience :: Developers",
     "Intended Audience :: Science/Research",
     "License :: OSI Approved :: MIT License",
+    "Operating System :: OS Independent",
     "Programming Language :: Python :: 3",
     "Programming Language :: Python :: 3.9",
     "Programming Language :: Python :: 3.10",
     "Programming Language :: Python :: 3.11",
     "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
     "Topic :: Scientific/Engineering :: Artificial Intelligence",
+    "Topic :: Scientific/Engineering :: Information Analysis",
+    "Topic :: Software Development :: Quality Assurance",
+    "Typing :: Typed",
 ]
 dependencies = [
     "duckdb>=1.0.0",
@@ -39,6 +56,7 @@ dev = [
     "hypothesis>=6.0.0",
     "ruff>=0.4.0",
     "taskipy>=1.12.0",
+    "pre-commit>=3.0.0",
 ]
 all = [
     "ipython>=7.0.0",
@@ -52,6 +70,8 @@ timefence = "timefence.cli:cli"
 Homepage = "https://timefence.dev"
 Documentation = "https://timefence.dev/documentation.html"
 Repository = "https://github.com/gauthierpiarrette/timefence"
+Issues = "https://github.com/gauthierpiarrette/timefence/issues"
+Changelog = "https://github.com/gauthierpiarrette/timefence/blob/main/CHANGELOG.md"
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/timefence"]
