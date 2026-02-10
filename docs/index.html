@@ -59,6 +59,27 @@
         .terminal-window {
             box-shadow: 0 20px 50px -12px rgba(0, 0, 0, 0.5);
         }
+
+        .copy-tooltip {
+            position: absolute;
+            bottom: 100%;
+            left: 50%;
+            transform: translateX(-50%);
+            padding: 4px 10px;
+            background: #22c55e;
+            color: #fff;
+            font-size: 12px;
+            font-weight: 600;
+            border-radius: 6px;
+            white-space: nowrap;
+            pointer-events: none;
+            opacity: 0;
+            transition: opacity 0.15s ease;
+            margin-bottom: 6px;
+        }
+        .copy-tooltip.show {
+            opacity: 1;
+        }
     </style>
 </head>
 <body class="bg-dark-950 text-slate-300 antialiased selection:bg-brand-500 selection:text-white">
@@ -132,7 +153,8 @@
                     <div class="px-3 py-2 bg-black/30 rounded text-slate-400 font-mono text-sm select-all">
                         pip install timefence
                     </div>
-                    <button class="text-slate-400 hover:text-white transition-colors" onclick="navigator.clipboard.writeText('pip install timefence')">
+                    <button class="relative text-slate-400 hover:text-white transition-colors" onclick="copyAndNotify(this, 'pip install timefence')">
+                        <span class="copy-tooltip">Copied!</span>
                         <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z"></path></svg>
                     </button>
                 </div>
@@ -317,7 +339,8 @@ timefence.<span class="text-yellow-300">build</span>(
                  <a href="https://github.com/gauthierpiarrette/timefence" class="px-8 py-3 rounded-lg bg-white text-dark-950 font-bold hover:bg-slate-200 transition-colors">
                     View on GitHub
                 </a>
-                <button class="px-8 py-3 rounded-lg border border-white/20 text-white hover:bg-white/5 transition-colors font-mono" onclick="navigator.clipboard.writeText('pip install timefence')">
+                <button class="relative px-8 py-3 rounded-lg border border-white/20 text-white hover:bg-white/5 transition-colors font-mono" onclick="copyAndNotify(this, 'pip install timefence')">
+                    <span class="copy-tooltip">Copied!</span>
                     pip install timefence
                 </button>
             </div>
@@ -337,5 +360,14 @@ timefence.<span class="text-yellow-300">build</span>(
         </div>
     </footer>
 
+    <script>
+        function copyAndNotify(btn, text) {
+            navigator.clipboard.writeText(text).then(function() {
+                var tip = btn.querySelector('.copy-tooltip');
+                tip.classList.add('show');
+                setTimeout(function() { tip.classList.remove('show'); }, 1500);
+            });
+        }
+    </script>
 </body>
 </html>
