@@ -446,7 +446,8 @@ def _content_hash_safe(path: Path | None, store: Any) -> str | None:
             for chunk in iter(lambda: f.read(8192), b""):
                 h.update(chunk)
         return f"sha256:{h.hexdigest()}"
-    except (OSError, TypeError):
+    except (OSError, TypeError) as exc:
+        logger.debug("Content hash failed for %s: %s", path, exc)
         return None
 
 
@@ -561,7 +562,7 @@ def _validate_timezones(
     """Check for timezone mismatches between labels and features."""
     try:
         label_type = conn.execute(
-            f'SELECT typeof("{label_time_col}") FROM __labels LIMIT 1'
+            f"SELECT typeof({_qi(label_time_col)}) FROM __labels LIMIT 1"
         ).fetchone()
         feat_type = conn.execute(
             f"SELECT typeof(feature_time) FROM {feat_table} LIMIT 1"
@@ -581,7 +582,7 @@ def _validate_timezones(
 
         if label_tz_aware != feat_tz_aware:
             label_sample = conn.execute(
-                f'SELECT "{label_time_col}" FROM __labels WHERE "{label_time_col}" IS NOT NULL LIMIT 1'
+                f"SELECT {_qi(label_time_col)} FROM __labels WHERE {_qi(label_time_col)} IS NOT NULL LIMIT 1"
             ).fetchone()
             feat_sample = conn.execute(
                 f"SELECT feature_time FROM {feat_table} WHERE feature_time IS NOT NULL LIMIT 1"
@@ -628,8 +629,9 @@ def _check_duplicates(
                 ORDER BY cnt DESC
                 LIMIT 3
             """
+            col_names = [_qi(k) for k in feature.source_keys] + [ts, "cnt"]
             examples = [
-                dict(zip([key_cols, ts, "count"], row))
+                dict(zip(col_names, row))
                 for row in conn.execute(examples_sql).fetchall()
             ]
             raise duplicate_error(feature.name, dup_count, examples)
@@ -669,7 +671,7 @@ def _validate_splits(
     # Warn if splits don't cover full label range
     try:
         time_range = conn.execute(
-            f'SELECT MIN("{label_time_col}"), MAX("{label_time_col}") FROM __labels'
+            f"SELECT MIN({_qi(label_time_col)}), MAX({_qi(label_time_col)}) FROM __labels"
         ).fetchone()
         if time_range and sorted_splits:
             first_start = sorted_splits[0][1][0]
@@ -937,10 +939,13 @@ def build(
 
     flat_features = flatten_features(features)
 
-    # Validate feature names are unique
+    # Validate feature names are unique (both exact and after sanitization)
     seen_names: dict[str, int] = {}
+    seen_safe: dict[str, list[str]] = {}  # safe_name -> [original names]
     for feat in flat_features:
         seen_names[feat.name] = seen_names.get(feat.name, 0) + 1
+        safe = _safe_name(feat.name)
+        seen_safe.setdefault(safe, []).append(feat.name)
     duplicates = {n: c for n, c in seen_names.items() if c > 1}
     if duplicates:
         dup_str = ", ".join(f"'{n}' (x{c})" for n, c in duplicates.items())
@@ -950,6 +955,15 @@ def build(
             "  one feature to silently overwrite another.\n\n"
             "  Fix: Set an explicit name on each feature:\n"
             '    timefence.Feature(..., name="unique_name")\n'
+        )
+    collisions = {s: names for s, names in seen_safe.items() if len(set(names)) > 1}
+    if collisions:
+        pairs = [f"{sorted(set(names))}" for names in collisions.values()]
+        raise TimefenceConfigError(
+            f"Feature names collide after sanitization: {', '.join(pairs)}.\n\n"
+            "  These names are distinct but map to the same internal identifier,\n"
+            "  which would cause one feature to silently overwrite another.\n\n"
+            "  Fix: Rename features to avoid ambiguity (e.g., use underscores consistently).\n"
         )
 
     for feat in flat_features:
@@ -1043,7 +1057,7 @@ def build(
 
         # Get label time range for manifest
         time_range_row = conn.execute(
-            f'SELECT MIN("{labels.label_time}"), MAX("{labels.label_time}") FROM __labels'
+            f"SELECT MIN({_qi(labels.label_time)}), MAX({_qi(labels.label_time)}) FROM __labels"
         ).fetchone()
         label_time_range = (
             [str(time_range_row[0]), str(time_range_row[1])]
@@ -1288,7 +1302,7 @@ def build(
                     first_col = output_cols[0]
                 try:
                     null_count = conn.execute(
-                        f'SELECT COUNT(*) FROM ({final_sql}) WHERE "{first_col}" IS NULL'
+                        f"SELECT COUNT(*) FROM ({final_sql}) WHERE {_qi(first_col)} IS NULL"
                     ).fetchone()[0]
                 except duckdb.Error as exc:
                     logger.debug(
@@ -1533,18 +1547,20 @@ def _audit_temporal(
         report = AuditReport(total_rows=total, mode="temporal")
 
         for feat_col, ft_col in feature_time_columns.items():
+            qft = _qi(ft_col)
+            qlt = _qi(label_time)
             leak_sql = (
                 f"SELECT COUNT(*) FROM __audit_data "
-                f'WHERE "{ft_col}" IS NOT NULL AND "{ft_col}" >= "{label_time}"'
+                f"WHERE {qft} IS NOT NULL AND {qft} >= {qlt}"
             )
             leaky_count = conn.execute(leak_sql).fetchone()[0]
 
             if leaky_count > 0:
                 stats_sql = (
-                    f'SELECT MAX("{ft_col}" - "{label_time}") as max_leak, '
-                    f'MEDIAN("{ft_col}" - "{label_time}") as med_leak '
+                    f"SELECT MAX({qft} - {qlt}) as max_leak, "
+                    f"MEDIAN({qft} - {qlt}) as med_leak "
                     f"FROM __audit_data "
-                    f'WHERE "{ft_col}" >= "{label_time}"'
+                    f"WHERE {qft} >= {qlt}"
                 )
                 stats = conn.execute(stats_sql).fetchone()
                 max_leak = stats[0] if stats[0] else None
@@ -1556,7 +1572,7 @@ def _audit_temporal(
                 leaky_rows_df = None
                 try:
                     leaky_rows_df = conn.execute(
-                        f'SELECT * FROM __audit_data WHERE "{ft_col}" >= "{label_time}" LIMIT 1000'
+                        f"SELECT * FROM __audit_data WHERE {qft} >= {qlt} LIMIT 1000"
                     ).fetchdf()
                 except duckdb.Error as exc:
                     logger.debug(
@@ -1576,7 +1592,7 @@ def _audit_temporal(
                 )
             else:
                 null_count = conn.execute(
-                    f'SELECT COUNT(*) FROM __audit_data WHERE "{ft_col}" IS NULL'
+                    f"SELECT COUNT(*) FROM __audit_data WHERE {qft} IS NULL"
                 ).fetchone()[0]
                 detail = FeatureAuditDetail(
                     name=feat_col,
@@ -1999,31 +2015,32 @@ def diff(
                 {"type": "-", "column": col, "detail": "(removed)"}
             )
 
-        key_join = " AND ".join(f'o."{k}" = n."{k}"' for k in keys_list)
-        key_join += f' AND o."{label_time}" = n."{label_time}"'
+        key_join = " AND ".join(f"o.{_qi(k)} = n.{_qi(k)}" for k in keys_list)
+        key_join += f" AND o.{_qi(label_time)} = n.{_qi(label_time)}"
 
         for col in sorted(common):
+            qc = _qi(col)
             try:
                 # Try tolerance-aware numeric comparison first
                 try:
                     change_sql = (
                         f"SELECT COUNT(*) FROM __old o JOIN __new n ON {key_join} "
-                        f'WHERE o."{col}" IS NOT NULL AND n."{col}" IS NOT NULL '
-                        f'AND ABS(CAST(o."{col}" AS DOUBLE) - CAST(n."{col}" AS DOUBLE)) '
-                        f'> {atol} + {rtol} * ABS(CAST(n."{col}" AS DOUBLE))'
+                        f"WHERE o.{qc} IS NOT NULL AND n.{qc} IS NOT NULL "
+                        f"AND ABS(CAST(o.{qc} AS DOUBLE) - CAST(n.{qc} AS DOUBLE)) "
+                        f"> {atol} + {rtol} * ABS(CAST(n.{qc} AS DOUBLE))"
                     )
                     changed = conn.execute(change_sql).fetchone()[0]
                     # Also count null-vs-non-null differences
                     null_diff_sql = (
                         f"SELECT COUNT(*) FROM __old o JOIN __new n ON {key_join} "
-                        f'WHERE (o."{col}" IS NULL) != (n."{col}" IS NULL)'
+                        f"WHERE (o.{qc} IS NULL) != (n.{qc} IS NULL)"
                     )
                     changed += conn.execute(null_diff_sql).fetchone()[0]
                 except (duckdb.Error, duckdb.ConversionException):
                     # Non-numeric: fall back to exact comparison
                     change_sql = (
                         f"SELECT COUNT(*) FROM __old o JOIN __new n ON {key_join} "
-                        f'WHERE o."{col}" IS DISTINCT FROM n."{col}"'
+                        f"WHERE o.{qc} IS DISTINCT FROM n.{qc}"
                     )
                     changed = conn.execute(change_sql).fetchone()[0]
 
@@ -2040,10 +2057,10 @@ def diff(
                     try:
                         delta_sql = (
                             f"SELECT "
-                            f'AVG(CAST(n."{col}" AS DOUBLE) - CAST(o."{col}" AS DOUBLE)), '
-                            f'MAX(ABS(CAST(n."{col}" AS DOUBLE) - CAST(o."{col}" AS DOUBLE))) '
+                            f"AVG(CAST(n.{qc} AS DOUBLE) - CAST(o.{qc} AS DOUBLE)), "
+                            f"MAX(ABS(CAST(n.{qc} AS DOUBLE) - CAST(o.{qc} AS DOUBLE))) "
                             f"FROM __old o JOIN __new n ON {key_join} "
-                            f'WHERE o."{col}" IS DISTINCT FROM n."{col}"'
+                            f"WHERE o.{qc} IS DISTINCT FROM n.{qc}"
                         )
                         delta_row = conn.execute(delta_sql).fetchone()
                         if delta_row and delta_row[0] is not None:
