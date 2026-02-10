@@ -19,6 +19,8 @@ class Store:
         path: Directory path for the store (default: ".timefence").
     """
 
+    path: Path
+
     def __init__(self, path: str | Path = DEFAULT_STORE_PATH):
         self.path = Path(path)
         self._ensure_dirs()

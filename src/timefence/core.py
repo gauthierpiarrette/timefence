@@ -3,10 +3,10 @@
 from __future__ import annotations
 
 import inspect
-from collections.abc import Sequence
+from collections.abc import Iterator, Sequence
 from datetime import timedelta
 from pathlib import Path
-from typing import Any, Callable, Union
+from typing import Any, Callable, Literal, Union
 
 from timefence._duration import parse_duration
 from timefence.errors import TimefenceConfigError, TimefenceValidationError
@@ -29,6 +29,15 @@ class Source:
         delimiter: CSV delimiter (only for CSV files).
         timestamp_format: strftime format for parsing timestamp strings.
     """
+
+    path: Path | None
+    df: Any
+    keys: list[str]
+    timestamp: str
+    name: str
+    delimiter: str
+    timestamp_format: str | None
+    format: str
 
     def __init__(
         self,
@@ -105,6 +114,15 @@ class SQLSource:
         connection: Path to a DuckDB database file (optional, uses in-memory by default).
     """
 
+    query: str
+    keys: list[str]
+    timestamp: str
+    name: str
+    connection: str | None
+    path: Path | None  # Always None for SQLSource
+    df: Any  # Always None for SQLSource
+    format: Literal["sql"]
+
     def __init__(
         self,
         query: str,
@@ -146,6 +164,17 @@ class Feature:
         on_duplicate: "error" (default) or "keep_any".
     """
 
+    source: SourceType
+    mode: Literal["columns", "sql", "transform"]
+    name: str
+    embargo: timedelta
+    key_mapping: dict[str, str]
+    on_duplicate: str
+    _columns: dict[str, str]
+    _sql_text: str | None
+    _sql_path: Path | None
+    _transform: Callable[..., Any] | None
+
     def __init__(
         self,
         source: SourceType,
@@ -177,6 +206,9 @@ class Feature:
                 self._columns = {c: c for c in columns}
             else:
                 self._columns = dict(columns)
+            self._sql_text = None
+            self._sql_path = None
+            self._transform = None
         elif sql is not None:
             self.mode = "sql"
             if isinstance(sql, Path):
@@ -186,6 +218,7 @@ class Feature:
                 self._sql_path = None
                 self._sql_text = sql
             self._columns = {}
+            self._transform = None
         else:
             self.mode = "transform"
             self._transform = transform
@@ -265,6 +298,12 @@ class Labels:
         target: Column name(s) for the prediction target.
     """
 
+    path: Path | None
+    df: Any
+    keys: list[str]
+    label_time: str
+    target: list[str]
+
     def __init__(
         self,
         *,
@@ -300,6 +339,9 @@ class FeatureSet:
     A FeatureSet is a flat list with a name. No nesting, no inheritance.
     """
 
+    name: str
+    features: list[Feature]
+
     def __init__(
         self,
         name: str,
@@ -308,10 +350,10 @@ class FeatureSet:
         self.name = name
         self.features = list(features)
 
-    def __iter__(self):
+    def __iter__(self) -> Iterator[Feature]:
         return iter(self.features)
 
-    def __len__(self):
+    def __len__(self) -> int:
         return len(self.features)
 
     def __repr__(self) -> str:
