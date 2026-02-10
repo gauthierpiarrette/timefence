@@ -85,3 +85,6 @@ check = "task lint && task format-check && task test"
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 addopts = "-v --tb=short"
+markers = [
+    "slow: marks tests as slow (run with pytest -m slow)",
+]
