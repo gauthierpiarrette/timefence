@@ -397,6 +397,37 @@ class DiffResult:
 
 
 # ---------------------------------------------------------------------------
+# SQL safety helpers
+# ---------------------------------------------------------------------------
+
+
+def _qi(name: str) -> str:
+    """Quote a SQL identifier (column name, table name) for DuckDB.
+
+    Wraps the name in double quotes and escapes any internal double quotes.
+    Example: my col -> "my col", it"s -> "it""s"
+    """
+    return '"' + name.replace('"', '""') + '"'
+
+
+def _ql(value: str | Path) -> str:
+    """Quote a value as a SQL single-quoted string literal.
+
+    Wraps in single quotes and escapes any internal single quotes.
+    Example: it's -> 'it''s'
+    """
+    return "'" + str(value).replace("'", "''") + "'"
+
+
+def _safe_name(name: str) -> str:
+    """Sanitize a string for use in SQL table/alias names.
+
+    Replaces non-alphanumeric characters (except underscores) with underscores.
+    """
+    return "".join(c if c.isalnum() or c == "_" else "_" for c in name) or "_unnamed"
+
+
+# ---------------------------------------------------------------------------
 # Internal helpers
 # ---------------------------------------------------------------------------
 
@@ -447,7 +478,7 @@ def _load_data_as_table(
     """Load a file path or DataFrame into a DuckDB temp table."""
     if isinstance(data, (str, Path)):
         conn.execute(
-            f"CREATE TEMP TABLE {table_name} AS SELECT * FROM read_parquet('{data}')"
+            f"CREATE TEMP TABLE {table_name} AS SELECT * FROM read_parquet({_ql(data)})"
         )
     else:
         _register_df(conn, data, f"{table_name}_df")
@@ -465,12 +496,12 @@ def _register_source(
     elif source.format == "parquet":
         conn.execute(
             f"CREATE OR REPLACE TEMP TABLE {table_name} AS "
-            f"SELECT * FROM read_parquet('{source.path}')"
+            f"SELECT * FROM read_parquet({_ql(source.path)})"
         )
     elif source.format == "csv":
         conn.execute(
             f"CREATE OR REPLACE TEMP TABLE {table_name} AS "
-            f"SELECT * FROM read_csv('{source.path}', delim='{source.delimiter}')"
+            f"SELECT * FROM read_csv({_ql(source.path)}, delim={_ql(source.delimiter)})"
         )
     else:
         raise TimefenceValidationError(f"Unsupported source format: {source.format}")
@@ -497,7 +528,7 @@ def _validate_source_schema(
     label_keys: list[str],
 ) -> None:
     """Validate that source has required columns."""
-    columns = [col[0] for col in conn.execute(f"DESCRIBE {table_name}").fetchall()]
+    columns = [col[0] for col in conn.execute(f"DESCRIBE {_qi(table_name)}").fetchall()]
 
     source_keys = feature.source_keys
     for key in source_keys:
@@ -574,13 +605,13 @@ def _check_duplicates(
     feature: Feature,
 ) -> None:
     """Check for duplicate (key, timestamp) pairs in feature table."""
-    key_cols = ", ".join(feature.source_keys)
-    ts = feature.source.timestamp
+    key_cols = ", ".join(_qi(k) for k in feature.source_keys)
+    ts = _qi(feature.source.timestamp)
 
     count_sql = f"""
         SELECT COUNT(*) FROM (
             SELECT {key_cols}, {ts}, COUNT(*) as cnt
-            FROM {table_name}
+            FROM {_qi(table_name)}
             GROUP BY {key_cols}, {ts}
             HAVING cnt > 1
         ) t
@@ -591,7 +622,7 @@ def _check_duplicates(
         if feature.on_duplicate == "error":
             examples_sql = f"""
                 SELECT {key_cols}, {ts}, COUNT(*) as cnt
-                FROM {table_name}
+                FROM {_qi(table_name)}
                 GROUP BY {key_cols}, {ts}
                 HAVING cnt > 1
                 ORDER BY cnt DESC
@@ -664,15 +695,15 @@ def _build_feature_sql(
     source_table: str,
 ) -> tuple[str, list[str]]:
     """Generate SQL for a feature's computation. Returns (sql, output_column_names)."""
-    key_cols = ", ".join(feature.source_keys)
-    ts = feature.source.timestamp
+    key_cols = ", ".join(_qi(k) for k in feature.source_keys)
+    ts = _qi(feature.source.timestamp)
 
     if feature.mode == "columns":
         select_cols = []
         output_cols = []
         for src_col, out_col in feature._columns.items():
             select_cols.append(
-                f"{src_col} AS {out_col}" if src_col != out_col else src_col
+                f"{_qi(src_col)} AS {_qi(out_col)}" if src_col != out_col else _qi(src_col)
             )
             output_cols.append(out_col)
 
@@ -713,11 +744,13 @@ def _build_row_number_join_sql(
 ) -> str:
     """Generate ROW_NUMBER-based join SQL (handles all cases)."""
     prefix = feature.name
+    safe_prefix = _safe_name(prefix)
+    lt = _qi(label_time_col)
 
     key_conditions = []
     for lk in label_keys:
         sk = feature.key_mapping.get(lk, lk)
-        key_conditions.append(f"f.{sk} = l.{lk}")
+        key_conditions.append(f"f.{_qi(sk)} = l.{_qi(lk)}")
     key_join = " AND ".join(key_conditions)
 
     embargo_interval = duration_to_sql_interval(feature.embargo)
@@ -726,30 +759,31 @@ def _build_row_number_join_sql(
 
     if feature.embargo.total_seconds() > 0:
         upper_bound = (
-            f"f.feature_time {temporal_op} l.{label_time_col} - {embargo_interval}"
+            f"f.feature_time {temporal_op} l.{lt} - {embargo_interval}"
         )
     else:
-        upper_bound = f"f.feature_time {temporal_op} l.{label_time_col}"
+        upper_bound = f"f.feature_time {temporal_op} l.{lt}"
 
-    lower_bound = f"f.feature_time >= l.{label_time_col} - {lookback_interval}"
+    lower_bound = f"f.feature_time >= l.{lt} - {lookback_interval}"
 
     col_selects = []
     col_names = []
     for col in feat_output_cols:
         namespaced = f"{prefix}__{col}"
-        col_selects.append(f"f.{col} AS {namespaced}")
-        col_names.append(namespaced)
-    col_selects.append(f"f.feature_time AS {prefix}__feature_time")
+        col_selects.append(f"f.{_qi(col)} AS {_qi(namespaced)}")
+        col_names.append(_qi(namespaced))
+    ft_col_name = f"{prefix}__feature_time"
+    col_selects.append(f"f.feature_time AS {_qi(ft_col_name)}")
     select_clause = ", ".join(col_selects)
 
     staleness_filter = ""
     if max_staleness is not None:
         staleness_interval = duration_to_sql_interval(max_staleness)
         staleness_filter = (
-            f"\n      AND f.feature_time >= l.{label_time_col} - {staleness_interval}"
+            f"\n      AND f.feature_time >= l.{lt} - {staleness_interval}"
         )
 
-    return f"""CREATE OR REPLACE TEMP TABLE __joined_{prefix} AS
+    return f"""CREATE OR REPLACE TEMP TABLE __joined_{safe_prefix} AS
     WITH ranked AS (
         SELECT
             l.__label_rowid,
@@ -764,7 +798,7 @@ def _build_row_number_join_sql(
            AND {upper_bound}
            AND {lower_bound}{staleness_filter}
     )
-    SELECT __label_rowid, {", ".join(col_names)}, {prefix}__feature_time
+    SELECT __label_rowid, {", ".join(col_names)}, {_qi(ft_col_name)}
     FROM ranked
     WHERE __rn = 1 OR __rn IS NULL"""
 
@@ -821,25 +855,27 @@ def _build_asof_join_sql_impl(
 ) -> str:
     """Generate ASOF JOIN SQL (faster, used when embargo == 0)."""
     prefix = feature.name
+    safe_prefix = _safe_name(prefix)
+    lt = _qi(label_time_col)
     lookback_interval = duration_to_sql_interval(max_lookback)
 
     # Equality conditions
     on_parts = []
     for lk in label_keys:
         sk = feature.key_mapping.get(lk, lk)
-        on_parts.append(f"l.{lk} = f.{sk}")
+        on_parts.append(f"l.{_qi(lk)} = f.{_qi(sk)}")
 
     # ASOF condition
     asof_op = ">" if join_mode == "strict" else ">="
-    on_parts.append(f"l.{label_time_col} {asof_op} f.feature_time")
+    on_parts.append(f"l.{lt} {asof_op} f.feature_time")
     on_clause = " AND ".join(on_parts)
 
     # Validity: must be within lookback (and staleness if set)
-    valid_parts = [f"f.feature_time >= l.{label_time_col} - {lookback_interval}"]
+    valid_parts = [f"f.feature_time >= l.{lt} - {lookback_interval}"]
     if max_staleness is not None:
         staleness_interval = duration_to_sql_interval(max_staleness)
         valid_parts.append(
-            f"f.feature_time >= l.{label_time_col} - {staleness_interval}"
+            f"f.feature_time >= l.{lt} - {staleness_interval}"
         )
     valid_check = " AND ".join(valid_parts)
 
@@ -849,15 +885,16 @@ def _build_asof_join_sql_impl(
         namespaced = f"{prefix}__{col}"
         col_names.append(namespaced)
         select_parts.append(
-            f"CASE WHEN {valid_check} THEN f.{col} ELSE NULL END AS {namespaced}"
+            f"CASE WHEN {valid_check} THEN f.{_qi(col)} ELSE NULL END AS {_qi(namespaced)}"
         )
+    ft_col_name = f"{prefix}__feature_time"
     select_parts.append(
         f"CASE WHEN {valid_check} THEN f.feature_time ELSE NULL END "
-        f"AS {prefix}__feature_time"
+        f"AS {_qi(ft_col_name)}"
     )
 
     return (
-        f"CREATE OR REPLACE TEMP TABLE __joined_{prefix} AS\n"
+        f"CREATE OR REPLACE TEMP TABLE __joined_{safe_prefix} AS\n"
         f"SELECT {', '.join(select_parts)}\n"
         f"FROM __labels l\n"
         f"ASOF LEFT JOIN {feat_table} f\n"
@@ -1013,7 +1050,7 @@ def build(
         for feat in flat_features:
             src_name = feat.source.name
             if src_name not in registered_sources:
-                table_name = f"__src_{src_name}"
+                table_name = f"__src_{_safe_name(src_name)}"
                 _register_source(conn, feat.source, table_name)
                 registered_sources[src_name] = table_name
 
@@ -1021,7 +1058,7 @@ def build(
             _validate_source_schema(conn, src_table, feat, labels.keys)
             _check_duplicates(conn, src_table, feat)
 
-            feat_table = f"__feat_{feat.name}"
+            feat_table = f"__feat_{_safe_name(feat.name)}"
 
             # Check feature-level cache
             cached = False
@@ -1036,7 +1073,7 @@ def build(
                     cache_path = store.feature_cache_path(feat.name, fck)
                     conn.execute(
                         f"CREATE OR REPLACE TEMP TABLE {feat_table} AS "
-                        f"SELECT * FROM read_parquet('{cache_path}')"
+                        f"SELECT * FROM read_parquet({_ql(cache_path)})"
                     )
                     feat_cols = [
                         c[0] for c in conn.execute(f"DESCRIBE {feat_table}").fetchall()
@@ -1090,7 +1127,7 @@ def build(
                     cache_path = store.feature_cache_path(feat.name, fck)
                     try:
                         conn.execute(
-                            f"COPY (SELECT * FROM {feat_table}) TO '{cache_path}' (FORMAT PARQUET)"
+                            f"COPY (SELECT * FROM {feat_table}) TO {_ql(cache_path)} (FORMAT PARQUET)"
                         )
                     except (duckdb.Error, OSError) as exc:
                         logger.warning(
@@ -1138,23 +1175,24 @@ def build(
             all_sql.append(join_sql)
 
         # Step 4: Combine all joins
-        key_cols = ", ".join(f"l.{k}" for k in labels.keys)
-        target_cols = ", ".join(f"l.{t}" for t in labels.target)
+        key_cols = ", ".join(f"l.{_qi(k)}" for k in labels.keys)
+        target_cols = ", ".join(f"l.{_qi(t)}" for t in labels.target)
         join_clauses = []
-        select_cols = [key_cols, f"l.{labels.label_time}", target_cols]
+        select_cols = [key_cols, f"l.{_qi(labels.label_time)}", target_cols]
 
         for feat in flat_features:
             prefix = feat.name
+            safe_prefix = _safe_name(prefix)
             _, output_cols = feature_tables[feat.name]
             for col in output_cols:
-                select_cols.append(f"j_{prefix}.{prefix}__{col}")
+                select_cols.append(f"j_{safe_prefix}.{_qi(f'{prefix}__{col}')}")
             join_clauses.append(
-                f"LEFT JOIN __joined_{prefix} j_{prefix} "
-                f"ON l.__label_rowid = j_{prefix}.__label_rowid"
+                f"LEFT JOIN __joined_{safe_prefix} j_{safe_prefix} "
+                f"ON l.__label_rowid = j_{safe_prefix}.__label_rowid"
             )
 
         order_cols = (
-            ", ".join(f"l.{k}" for k in labels.keys) + f", l.{labels.label_time}"
+            ", ".join(f"l.{_qi(k)}" for k in labels.keys) + f", l.{_qi(labels.label_time)}"
         )
         final_sql = (
             f"SELECT {', '.join(select_cols)} "
@@ -1167,10 +1205,11 @@ def build(
         if on_missing == "skip":
             not_null_conditions = []
             for feat in flat_features:
+                safe_pref = _safe_name(feat.name)
                 _, output_cols = feature_tables[feat.name]
                 for col in output_cols:
                     not_null_conditions.append(
-                        f"j_{feat.name}.{feat.name}__{col} IS NOT NULL"
+                        f"j_{safe_pref}.{_qi(f'{feat.name}__{col}')} IS NOT NULL"
                     )
             if not_null_conditions:
                 final_sql = (
@@ -1203,16 +1242,16 @@ def build(
                     name = desc[0]
                     if "__" in name:
                         short = name.split("__", 1)[1]
-                        renames.append(f'"{name}" AS {short}')
+                        renames.append(f"{_qi(name)} AS {_qi(short)}")
                     else:
-                        renames.append(name)
+                        renames.append(_qi(name))
                 final_sql = f"SELECT {', '.join(renames)} FROM ({final_sql})"
 
         # Step 5: Write output
         if output is not None:
             output = str(output)
             Path(output).parent.mkdir(parents=True, exist_ok=True)
-            conn.execute(f"COPY ({final_sql}) TO '{output}' (FORMAT PARQUET)")
+            conn.execute(f"COPY ({final_sql}) TO {_ql(output)} (FORMAT PARQUET)")
 
         # Collect stats
         result_df = conn.execute(final_sql)
@@ -1246,38 +1285,40 @@ def build(
         audit_passed = True
         for feat in flat_features:
             prefix = feat.name
-            ft_col = f"{prefix}__feature_time"
+            safe_prefix = _safe_name(prefix)
+            ft_col = _qi(f"{prefix}__feature_time")
+            lt = _qi(labels.label_time)
             embargo_interval = duration_to_sql_interval(feat.embargo)
 
             if join == "strict":
                 if feat.embargo.total_seconds() > 0:
                     check_sql = (
-                        f"SELECT COUNT(*) FROM __joined_{prefix} j "
+                        f"SELECT COUNT(*) FROM __joined_{safe_prefix} j "
                         f"JOIN __labels l ON j.__label_rowid = l.__label_rowid "
                         f"WHERE j.{ft_col} IS NOT NULL "
-                        f"AND j.{ft_col} >= l.{labels.label_time} - {embargo_interval}"
+                        f"AND j.{ft_col} >= l.{lt} - {embargo_interval}"
                     )
                 else:
                     check_sql = (
-                        f"SELECT COUNT(*) FROM __joined_{prefix} j "
+                        f"SELECT COUNT(*) FROM __joined_{safe_prefix} j "
                         f"JOIN __labels l ON j.__label_rowid = l.__label_rowid "
                         f"WHERE j.{ft_col} IS NOT NULL "
-                        f"AND j.{ft_col} >= l.{labels.label_time}"
+                        f"AND j.{ft_col} >= l.{lt}"
                     )
             else:
                 if feat.embargo.total_seconds() > 0:
                     check_sql = (
-                        f"SELECT COUNT(*) FROM __joined_{prefix} j "
+                        f"SELECT COUNT(*) FROM __joined_{safe_prefix} j "
                         f"JOIN __labels l ON j.__label_rowid = l.__label_rowid "
                         f"WHERE j.{ft_col} IS NOT NULL "
-                        f"AND j.{ft_col} > l.{labels.label_time} - {embargo_interval}"
+                        f"AND j.{ft_col} > l.{lt} - {embargo_interval}"
                     )
                 else:
                     check_sql = (
-                        f"SELECT COUNT(*) FROM __joined_{prefix} j "
+                        f"SELECT COUNT(*) FROM __joined_{safe_prefix} j "
                         f"JOIN __labels l ON j.__label_rowid = l.__label_rowid "
                         f"WHERE j.{ft_col} IS NOT NULL "
-                        f"AND j.{ft_col} > l.{labels.label_time}"
+                        f"AND j.{ft_col} > l.{lt}"
                     )
             violations = conn.execute(check_sql).fetchone()[0]
             if violations > 0:
@@ -1295,9 +1336,9 @@ def build(
                 )
                 split_sql = (
                     f"COPY (SELECT * FROM ({final_sql}) "
-                    f"WHERE \"{labels.label_time}\" >= '{start}' "
-                    f"AND \"{labels.label_time}\" < '{end}') "
-                    f"TO '{split_file}' (FORMAT PARQUET)"
+                    f"WHERE {_qi(labels.label_time)} >= {_ql(start)} "
+                    f"AND {_qi(labels.label_time)} < {_ql(end)}) "
+                    f"TO {_ql(split_file)} (FORMAT PARQUET)"
                 )
                 conn.execute(split_sql)
                 split_paths[split_name] = split_file
@@ -1559,7 +1600,7 @@ def _audit_rebuild(
         existing_cols = [c[0] for c in conn.execute("DESCRIBE __existing").fetchall()]
 
         # Extract label spine
-        key_cols = ", ".join(f'"{k}"' for k in keys_list)
+        key_cols = ", ".join(_qi(k) for k in keys_list)
         possible_targets = [
             c
             for c in existing_cols
@@ -1572,19 +1613,19 @@ def _audit_rebuild(
 
             if target[0] == "__dummy":
                 conn.execute(
-                    f'COPY (SELECT {key_cols}, "{label_time}", 1 as __dummy FROM __existing) '
-                    f"TO '{synth_labels_path}' (FORMAT PARQUET)"
+                    f"COPY (SELECT {key_cols}, {_qi(label_time)}, 1 as __dummy FROM __existing) "
+                    f"TO {_ql(synth_labels_path)} (FORMAT PARQUET)"
                 )
             else:
-                target_select = ", ".join(f'"{t}"' for t in target)
+                target_select = ", ".join(_qi(t) for t in target)
                 conn.execute(
-                    f'COPY (SELECT {key_cols}, "{label_time}", {target_select} FROM __existing) '
-                    f"TO '{synth_labels_path}' (FORMAT PARQUET)"
+                    f"COPY (SELECT {key_cols}, {_qi(label_time)}, {target_select} FROM __existing) "
+                    f"TO {_ql(synth_labels_path)} (FORMAT PARQUET)"
                 )
 
             conn.execute(
                 f"CREATE OR REPLACE TEMP TABLE __labels_raw AS "
-                f"SELECT * FROM read_parquet('{synth_labels_path}')"
+                f"SELECT * FROM read_parquet({_ql(synth_labels_path)})"
             )
             conn.execute(
                 "CREATE OR REPLACE TEMP TABLE __labels AS "
@@ -1597,12 +1638,12 @@ def _audit_rebuild(
             for feat in flat_features:
                 src_name = feat.source.name
                 if src_name not in registered:
-                    tbl = f"__src_{src_name}"
+                    tbl = f"__src_{_safe_name(src_name)}"
                     _register_source(conn, feat.source, tbl)
                     registered[src_name] = tbl
 
                 src_tbl = registered[src_name]
-                feat_tbl = f"__feat_{feat.name}"
+                feat_tbl = f"__feat_{_safe_name(feat.name)}"
 
                 if feat.mode == "transform":
                     rel = feat._transform(conn, src_tbl)  # noqa: F841
@@ -1672,6 +1713,7 @@ def _audit_rebuild(
 
             for feat in flat_features:
                 prefix = feat.name
+                safe_prefix = _safe_name(prefix)
                 _, out_cols = feat_tables[feat.name]
 
                 matching_cols = []
@@ -1697,21 +1739,21 @@ def _audit_rebuild(
                     try:
                         compare_sql = (
                             f"SELECT COUNT(*) FROM __existing_numbered e "
-                            f"JOIN __joined_{prefix} c ON e.__rowid = c.__label_rowid "
-                            f'WHERE e."{exist_col}" IS NOT NULL '
-                            f'AND c."{correct_col}" IS NOT NULL '
-                            f'AND ABS(CAST(e."{exist_col}" AS DOUBLE) - CAST(c."{correct_col}" AS DOUBLE)) '
-                            f'> {DEFAULT_ATOL} + {DEFAULT_RTOL} * ABS(CAST(c."{correct_col}" AS DOUBLE))'
+                            f"JOIN __joined_{safe_prefix} c ON e.__rowid = c.__label_rowid "
+                            f"WHERE e.{_qi(exist_col)} IS NOT NULL "
+                            f"AND c.{_qi(correct_col)} IS NOT NULL "
+                            f"AND ABS(CAST(e.{_qi(exist_col)} AS DOUBLE) - CAST(c.{_qi(correct_col)} AS DOUBLE)) "
+                            f"> {DEFAULT_ATOL} + {DEFAULT_RTOL} * ABS(CAST(c.{_qi(correct_col)} AS DOUBLE))"
                         )
                         diff_count = conn.execute(compare_sql).fetchone()[0]
                     except (duckdb.Error, duckdb.ConversionException):
                         # Non-numeric: exact string comparison
                         compare_sql = (
                             f"SELECT COUNT(*) FROM __existing_numbered e "
-                            f"JOIN __joined_{prefix} c ON e.__rowid = c.__label_rowid "
-                            f'WHERE e."{exist_col}" IS NOT NULL '
-                            f'AND c."{correct_col}" IS NOT NULL '
-                            f'AND CAST(e."{exist_col}" AS VARCHAR) != CAST(c."{correct_col}" AS VARCHAR)'
+                            f"JOIN __joined_{safe_prefix} c ON e.__rowid = c.__label_rowid "
+                            f"WHERE e.{_qi(exist_col)} IS NOT NULL "
+                            f"AND c.{_qi(correct_col)} IS NOT NULL "
+                            f"AND CAST(e.{_qi(exist_col)} AS VARCHAR) != CAST(c.{_qi(correct_col)} AS VARCHAR)"
                         )
                         diff_count = conn.execute(compare_sql).fetchone()[0]
 
@@ -1721,10 +1763,10 @@ def _audit_rebuild(
                         try:
                             leaky_rows_df = conn.execute(
                                 f"SELECT e.* FROM __existing_numbered e "
-                                f"JOIN __joined_{prefix} c ON e.__rowid = c.__label_rowid "
-                                f'WHERE e."{exist_col}" IS NOT NULL '
-                                f'AND c."{correct_col}" IS NOT NULL '
-                                f'AND CAST(e."{exist_col}" AS VARCHAR) != CAST(c."{correct_col}" AS VARCHAR) '
+                                f"JOIN __joined_{safe_prefix} c ON e.__rowid = c.__label_rowid "
+                                f"WHERE e.{_qi(exist_col)} IS NOT NULL "
+                                f"AND c.{_qi(correct_col)} IS NOT NULL "
+                                f"AND CAST(e.{_qi(exist_col)} AS VARCHAR) != CAST(c.{_qi(correct_col)} AS VARCHAR) "
                                 f"LIMIT 1000"
                             ).fetchdf()
                         except duckdb.Error as exc:
@@ -1736,12 +1778,12 @@ def _audit_rebuild(
 
                 if leaky_count > 0:
                     pct = leaky_count / total if total > 0 else 0
-                    ft_col = f"{prefix}__feature_time"
+                    ft_col = _qi(f"{prefix}__feature_time")
                     try:
                         leak_stats = conn.execute(
-                            f'SELECT MAX(l."{label_time}" - j.{ft_col}), '
-                            f'MEDIAN(l."{label_time}" - j.{ft_col}) '
-                            f"FROM __joined_{prefix} j "
+                            f"SELECT MAX(l.{_qi(label_time)} - j.{ft_col}), "
+                            f"MEDIAN(l.{_qi(label_time)} - j.{ft_col}) "
+                            f"FROM __joined_{safe_prefix} j "
                             f"JOIN __labels l ON j.__label_rowid = l.__label_rowid "
                             f"WHERE j.{ft_col} IS NOT NULL"
                         ).fetchone()
@@ -1770,8 +1812,8 @@ def _audit_rebuild(
                     if out_cols:
                         try:
                             null_count = conn.execute(
-                                f"SELECT COUNT(*) FROM __joined_{prefix} "
-                                f"WHERE {prefix}__{out_cols[0]} IS NULL"
+                                f"SELECT COUNT(*) FROM __joined_{safe_prefix} "
+                                f"WHERE {_qi(f'{prefix}__{out_cols[0]}')} IS NULL"
                             ).fetchone()[0]
                         except duckdb.Error as exc:
                             logger.debug(
@@ -1815,7 +1857,7 @@ def explain(
     try:
         if labels.path is not None:
             label_count = conn.execute(
-                f"SELECT COUNT(*) FROM read_parquet('{labels.path}')"
+                f"SELECT COUNT(*) FROM read_parquet({_ql(labels.path)})"
             ).fetchone()[0]
         elif labels.df is not None:
             conn.register("__lbl", labels.df)
@@ -1903,8 +1945,8 @@ def diff(
 
     conn = duckdb.connect()
     try:
-        conn.execute(f"CREATE TEMP TABLE __old AS SELECT * FROM read_parquet('{old}')")
-        conn.execute(f"CREATE TEMP TABLE __new AS SELECT * FROM read_parquet('{new}')")
+        conn.execute(f"CREATE TEMP TABLE __old AS SELECT * FROM read_parquet({_ql(old)})")
+        conn.execute(f"CREATE TEMP TABLE __new AS SELECT * FROM read_parquet({_ql(new)})")
 
         old_count = conn.execute("SELECT COUNT(*) FROM __old").fetchone()[0]
         new_count = conn.execute("SELECT COUNT(*) FROM __new").fetchone()[0]
