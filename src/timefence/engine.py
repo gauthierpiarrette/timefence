@@ -703,7 +703,9 @@ def _build_feature_sql(
         output_cols = []
         for src_col, out_col in feature._columns.items():
             select_cols.append(
-                f"{_qi(src_col)} AS {_qi(out_col)}" if src_col != out_col else _qi(src_col)
+                f"{_qi(src_col)} AS {_qi(out_col)}"
+                if src_col != out_col
+                else _qi(src_col)
             )
             output_cols.append(out_col)
 
@@ -758,9 +760,7 @@ def _build_row_number_join_sql(
     temporal_op = "<" if join_mode == "strict" else "<="
 
     if feature.embargo.total_seconds() > 0:
-        upper_bound = (
-            f"f.feature_time {temporal_op} l.{lt} - {embargo_interval}"
-        )
+        upper_bound = f"f.feature_time {temporal_op} l.{lt} - {embargo_interval}"
     else:
         upper_bound = f"f.feature_time {temporal_op} l.{lt}"
 
@@ -874,9 +874,7 @@ def _build_asof_join_sql_impl(
     valid_parts = [f"f.feature_time >= l.{lt} - {lookback_interval}"]
     if max_staleness is not None:
         staleness_interval = duration_to_sql_interval(max_staleness)
-        valid_parts.append(
-            f"f.feature_time >= l.{lt} - {staleness_interval}"
-        )
+        valid_parts.append(f"f.feature_time >= l.{lt} - {staleness_interval}")
     valid_check = " AND ".join(valid_parts)
 
     select_parts = ["l.__label_rowid"]
@@ -1192,7 +1190,8 @@ def build(
             )
 
         order_cols = (
-            ", ".join(f"l.{_qi(k)}" for k in labels.keys) + f", l.{_qi(labels.label_time)}"
+            ", ".join(f"l.{_qi(k)}" for k in labels.keys)
+            + f", l.{_qi(labels.label_time)}"
         )
         final_sql = (
             f"SELECT {', '.join(select_cols)} "
@@ -1945,8 +1944,12 @@ def diff(
 
     conn = duckdb.connect()
     try:
-        conn.execute(f"CREATE TEMP TABLE __old AS SELECT * FROM read_parquet({_ql(old)})")
-        conn.execute(f"CREATE TEMP TABLE __new AS SELECT * FROM read_parquet({_ql(new)})")
+        conn.execute(
+            f"CREATE TEMP TABLE __old AS SELECT * FROM read_parquet({_ql(old)})"
+        )
+        conn.execute(
+            f"CREATE TEMP TABLE __new AS SELECT * FROM read_parquet({_ql(new)})"
+        )
 
         old_count = conn.execute("SELECT COUNT(*) FROM __old").fetchone()[0]
         new_count = conn.execute("SELECT COUNT(*) FROM __new").fetchone()[0]

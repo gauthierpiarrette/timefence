@@ -38,6 +38,7 @@ def _safe_name(name: str) -> str:
     """Sanitize a string for use in SQL table/alias names."""
     return "".join(c if c.isalnum() or c == "_" else "_" for c in name) or "_unnamed"
 
+
 console = Console()
 err_console = Console(stderr=True)
 
