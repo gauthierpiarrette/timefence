@@ -136,13 +136,11 @@ blog/                  # Blog posts
 Use clear, concise commit messages that explain *why*, not just *what*:
 
 ```
-fix: prevent SQL injection in dynamic table names
+Prevent SQL injection in dynamic table names
 
 User-provided source names were interpolated directly into SQL.
 Added _safe_name() helper with collision detection.
 ```
-
-Prefix with: `fix:`, `feat:`, `docs:`, `test:`, `refactor:`, `ci:`, `chore:`.
 
 ### Pull Request Process
 
