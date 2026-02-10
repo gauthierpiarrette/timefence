@@ -41,11 +41,7 @@ def parse_duration(value: str | timedelta | None) -> timedelta | None:
     minutes = int(match.group(3) or 0)
     seconds = int(match.group(4) or 0)
 
-    result = timedelta(days=days, hours=hours, minutes=minutes, seconds=seconds)
-    if result == timedelta(0) and value != "0d":
-        # Allow "0d" explicitly but reject empty/zero matches from bad input
-        pass
-    return result
+    return timedelta(days=days, hours=hours, minutes=minutes, seconds=seconds)
 
 
 def format_duration(td: timedelta | None) -> str | None:
