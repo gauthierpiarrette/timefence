@@ -60,11 +60,12 @@ class TestCLIInspect:
 class TestCLICatalog:
     def test_catalog(self, runner, tmp_data):
         features_file = tmp_data.parent / "features.py"
+        data_path = (tmp_data / "users.parquet").as_posix()
         features_file.write_text(f"""
 import timefence
 
 users = timefence.Source(
-    path="{tmp_data}/users.parquet",
+    path="{data_path}",
     keys=["user_id"],
     timestamp="updated_at",
     name="users",
