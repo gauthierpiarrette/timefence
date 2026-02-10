@@ -730,6 +730,7 @@ result = timefence.build(
     splits=None,
     store=None,
     flatten_columns=False,
+    progress=None,
 ) -> BuildResult</code></pre>
                         <table class="w-full text-sm param-table">
                             <tr>
@@ -781,6 +782,11 @@ result = timefence.build(
                                 <td class="param-name">flatten_columns</td>
                                 <td class="param-type">bool</td>
                                 <td>Strip feature name prefix from output columns. Default: <code>False</code>.</td>
+                            </tr>
+                            <tr>
+                                <td class="param-name">progress</td>
+                                <td class="param-type">Callable | None</td>
+                                <td>Callback invoked with a status message at each step. Useful for progress bars. Default: <code>None</code>.</td>
                             </tr>
                         </table>
 
@@ -1046,6 +1052,21 @@ manifest = store.get_build("abc123")</code></pre>
 
                 <section id="cli">
                     <h2 class="border-b border-white/10 pb-2 mb-8">CLI Reference</h2>
+
+                    <!-- Global options -->
+                    <div id="cli-global" class="mb-10">
+                        <h3>Global Options</h3>
+                        <p>These flags apply to all commands when placed before the subcommand name.</p>
+                        <pre><code class="language-bash">timefence -v &lt;command&gt;       # Verbose: show generated SQL and build details
+timefence --debug &lt;command&gt;  # Debug: full output including DuckDB internals</code></pre>
+                        <table class="w-full text-sm mt-4">
+                            <thead><tr class="text-left text-slate-400 border-b border-white/10"><th class="pb-2 param-name">Flag</th><th class="pb-2 param-type">Description</th></tr></thead>
+                            <tbody class="text-slate-300">
+                                <tr class="border-b border-white/5"><td class="py-2 font-mono text-brand-400">-v, --verbose</td><td class="py-2">Show generated SQL, cache status, and label/feature details</td></tr>
+                                <tr class="border-b border-white/5"><td class="py-2 font-mono text-brand-400">--debug</td><td class="py-2">Full debug output: ASOF fallback reasons, hash details, DuckDB internals</td></tr>
+                            </tbody>
+                        </table>
+                    </div>
 
                     <!-- cli: audit -->
                     <div id="cli-audit" class="mb-10">
