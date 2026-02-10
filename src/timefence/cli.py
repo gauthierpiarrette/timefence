@@ -23,6 +23,21 @@ from timefence._version import __version__
 
 logger = logging.getLogger(__name__)
 
+
+def _ql(value: str | Path) -> str:
+    """Quote a value as a SQL single-quoted string literal."""
+    return "'" + str(value).replace("'", "''") + "'"
+
+
+def _qi(name: str) -> str:
+    """Quote a SQL identifier (column name, table name) for DuckDB."""
+    return '"' + name.replace('"', '""') + '"'
+
+
+def _safe_name(name: str) -> str:
+    """Sanitize a string for use in SQL table/alias names."""
+    return "".join(c if c.isalnum() or c == "_" else "_" for c in name) or "_unnamed"
+
 console = Console()
 err_console = Console(stderr=True)
 
@@ -293,11 +308,11 @@ def inspect(path: str, json_output: bool):
     try:
         if path_obj.suffix in (".parquet", ".pq"):
             conn.execute(
-                f"CREATE TEMP TABLE __data AS SELECT * FROM read_parquet('{path}')"
+                f"CREATE TEMP TABLE __data AS SELECT * FROM read_parquet({_ql(path)})"
             )
         elif path_obj.suffix == ".csv":
             conn.execute(
-                f"CREATE TEMP TABLE __data AS SELECT * FROM read_csv('{path}')"
+                f"CREATE TEMP TABLE __data AS SELECT * FROM read_csv({_ql(path)})"
             )
         else:
             err_console.print(f"[red]Unsupported format: {path_obj.suffix}[/red]")
@@ -599,7 +614,7 @@ def build(
             cols = [
                 c[0]
                 for c in conn.execute(
-                    f"DESCRIBE (SELECT * FROM read_parquet('{labels}'))"
+                    f"DESCRIBE (SELECT * FROM read_parquet({_ql(labels)}))"
                 ).fetchall()
             ]
             label_keys = [cols[0]]
@@ -615,7 +630,7 @@ def build(
             cols = [
                 c[0]
                 for c in conn.execute(
-                    f"DESCRIBE (SELECT * FROM read_parquet('{labels}'))"
+                    f"DESCRIBE (SELECT * FROM read_parquet({_ql(labels)}))"
                 ).fetchall()
             ]
             label_target = [c for c in cols if c not in label_keys and c != label_time]
@@ -777,7 +792,7 @@ def explain_cmd(
             cols = [
                 c[0]
                 for c in conn.execute(
-                    f"DESCRIBE (SELECT * FROM read_parquet('{labels}'))"
+                    f"DESCRIBE (SELECT * FROM read_parquet({_ql(labels)}))"
                 ).fetchall()
             ]
             label_keys = [cols[0]]
@@ -1008,7 +1023,7 @@ def doctor(json_output: bool):
                 cols = [
                     c[0]
                     for c in conn.execute(
-                        f"DESCRIBE (SELECT * FROM read_parquet('{label_path}'))"
+                        f"DESCRIBE (SELECT * FROM read_parquet({_ql(label_path)}))"
                     ).fetchall()
                 ]
                 label_keys = label_config.get("keys", [])
@@ -1040,17 +1055,17 @@ def doctor(json_output: bool):
                         continue
                     seen_sources.add(src_key)
 
-                    tbl = f"__doc_{feat.source.name}"
+                    tbl = f"__doc_{_safe_name(feat.source.name)}"
                     conn.execute(
                         f"CREATE OR REPLACE TEMP TABLE {tbl} AS "
-                        f"SELECT * FROM read_parquet('{feat.source.path}')"
+                        f"SELECT * FROM read_parquet({_ql(feat.source.path)})"
                     )
-                    key_cols = ", ".join(feat.source.keys)
-                    ts = feat.source.timestamp
+                    key_cols = ", ".join(_qi(k) for k in feat.source.keys)
+                    ts = _qi(feat.source.timestamp)
                     dup_count = conn.execute(
                         f"SELECT COUNT(*) FROM ("
-                        f'  SELECT {key_cols}, "{ts}", COUNT(*) as cnt'
-                        f'  FROM {tbl} GROUP BY {key_cols}, "{ts}" HAVING cnt > 1'
+                        f"  SELECT {key_cols}, {ts}, COUNT(*) as cnt"
+                        f"  FROM {tbl} GROUP BY {key_cols}, {ts} HAVING cnt > 1"
                         f") t"
                     ).fetchone()[0]
                     if dup_count > 0:
