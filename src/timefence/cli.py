@@ -201,8 +201,24 @@ def _infer_keys_from_features(features: list) -> list[str] | None:
 
 @click.group()
 @click.version_option(__version__, prog_name="timefence")
-def cli():
+@click.option("-v", "--verbose", is_flag=True, help="Show generated SQL and details")
+@click.option(
+    "--debug", is_flag=True, help="Show full debug output including DuckDB internals"
+)
+def cli(verbose: bool, debug: bool) -> None:
     """Timefence: temporal correctness layer for ML training data."""
+    if debug:
+        logging.basicConfig(
+            level=logging.DEBUG,
+            format="%(name)s [%(levelname)s] %(message)s",
+        )
+    elif verbose:
+        logging.basicConfig(
+            level=logging.INFO,
+            format="%(message)s",
+        )
+        # Also enable DuckDB-level logging at INFO
+        logging.getLogger("timefence").setLevel(logging.INFO)
 
 
 @cli.command()

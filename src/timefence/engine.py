@@ -1109,6 +1109,12 @@ def build(
             "SELECT ROW_NUMBER() OVER () AS __label_rowid, * FROM __labels_raw"
         )
         label_count = conn.execute("SELECT COUNT(*) FROM __labels").fetchone()[0]
+        logger.info(
+            "Labels: %d rows, keys=%s, label_time=%s",
+            label_count,
+            labels.keys,
+            labels.label_time,
+        )
 
         # Get label time range for manifest
         time_range_row = conn.execute(
@@ -1176,6 +1182,10 @@ def build(
                     conn, feat, src_table, feat_table
                 )
                 all_sql.extend(feat_sqls)
+                for s in feat_sqls:
+                    logger.info("Feature SQL [%s]:\n  %s", feat.name, s)
+            else:
+                logger.info("Feature [%s]: loaded from cache", feat.name)
 
                 # Save to feature cache
                 if store is not None and fck is not None:
@@ -1208,6 +1218,9 @@ def build(
                 max_lookback_td,
                 max_staleness_td,
                 output_cols,
+            )
+            logger.info(
+                "Join SQL [%s] (strategy=%s):\n  %s", feat.name, strategy, join_sql
             )
             try:
                 conn.execute(join_sql)
@@ -1283,6 +1296,7 @@ def build(
                 )
 
         all_sql.append(final_sql)
+        logger.info("Final SQL:\n  %s", final_sql)
 
         # Flatten column names if requested
         if flatten_columns:
