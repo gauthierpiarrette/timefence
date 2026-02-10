@@ -16,4 +16,3 @@ htmlcov/
 *.parquet
 .timefence/
 uv.lock
-.claude
