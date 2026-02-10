@@ -11,7 +11,7 @@ jobs:
     runs-on: ${{ matrix.os }}
     strategy:
       matrix:
-        os: [ubuntu-latest, macos-latest]
+        os: [ubuntu-latest, macos-latest, windows-latest]
         python-version: ["3.9", "3.10", "3.11", "3.12"]
     steps:
       - uses: actions/checkout@v4
@@ -22,8 +22,19 @@ jobs:
       - name: Install dependencies
         run: uv sync --extra dev
       - name: Lint with ruff
+        if: matrix.os == 'ubuntu-latest' && matrix.python-version == '3.12'
         run: uv run ruff check src/ tests/
       - name: Format check with ruff
+        if: matrix.os == 'ubuntu-latest' && matrix.python-version == '3.12'
         run: uv run ruff format --check src/ tests/
       - name: Run tests
         run: uv run pytest tests/ -v --tb=short
+      - name: Run tests with coverage
+        if: matrix.os == 'ubuntu-latest' && matrix.python-version == '3.12'
+        run: uv run pytest tests/ --cov=timefence --cov-report=xml --ignore=tests/test_property.py -q
+      - name: Upload coverage to Codecov
+        if: matrix.os == 'ubuntu-latest' && matrix.python-version == '3.12'
+        uses: codecov/codecov-action@v4
+        with:
+          file: coverage.xml
+          fail_ci_if_error: false
