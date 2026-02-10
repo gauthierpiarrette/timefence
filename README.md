@@ -18,7 +18,7 @@ From `pip install` to "I found leakage in my pipeline" in under 3 minutes.
 pip install timefence
 ```
 
-Four runtime dependencies: `duckdb`, `click`, `rich`, `pyyaml`. Python 3.9+.
+Five runtime dependencies: `duckdb`, `click`, `rich`, `pandas`, `pyyaml`. Python 3.9+.
 
 ## Quick Start
 
@@ -285,6 +285,9 @@ result = timefence.build(
 
     # Reproducibility
     store=timefence.Store(".timefence"),
+
+    # Progress reporting (for long builds)
+    progress=lambda msg: print(msg),  # or use Rich progress bar
 )
 
 # Inspect the result
@@ -395,6 +398,13 @@ manifest = store.get_build(build_id)  # Specific build manifest
 ---
 
 ## CLI Reference
+
+### Global Options
+
+```bash
+timefence -v <command>       # Verbose: show generated SQL and build details
+timefence --debug <command>  # Debug: full output including DuckDB internals
+```
 
 ### `timefence quickstart`
 
