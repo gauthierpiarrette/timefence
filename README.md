@@ -28,93 +28,53 @@ Timefence finds and fixes temporal data leakage in ML training sets. No infrastr
 
 If you build training data by joining features to labels, your model may be training on the future. A `LEFT JOIN` or `merge_asof` gives each label the latest feature row — including data from *after* the event you're predicting. The model trains on the future. Offline metrics look great. Production doesn't match. No error, no warning, no way to tell from the output alone.
 
-```bash
-pip install timefence
-```
-
 ## Try It in 60 Seconds
 
 ```bash
+pip install timefence
 timefence quickstart churn-example && cd churn-example
+```
+
+Audit the training set — Timefence finds 3 leaky features:
+
+```bash
 timefence audit data/train_LEAKY.parquet
 ```
 
-```
-TEMPORAL AUDIT REPORT
-Scanned 5,000 rows
+<p align="center">
+  <img src="docs/assets/terminal-audit.png" alt="timefence audit showing leakage in 3 of 4 features" width="800">
+</p>
 
-WARNING  LEAKAGE DETECTED in 3 of 4 features
-
-  LEAK  rolling_spend_30d
-        1,520 rows (30.4%) use feature data from the future
-        Severity: HIGH
-
-  LEAK  days_since_login
-        4,909 rows (98.2%) use feature data from the future
-        Severity: HIGH
-
-  OK    user_country - clean (5,000 rows)
-  OK    account_age_days - clean (5,000 rows)
-```
-
-Rebuild it with temporal correctness:
+Rebuild with temporal correctness:
 
 ```bash
-timefence build --labels data/labels.parquet --features features.py --output train_CLEAN.parquet
+timefence build -o train_CLEAN.parquet
 ```
 
-```
-Building training set...
+<p align="center">
+  <img src="docs/assets/terminal-build.png" alt="timefence build producing a clean training set" width="800">
+</p>
 
-  Labels     5,000 rows from data/labels.parquet
-  Features   4 features
-
-  Joining with point-in-time correctness (feature_time < label_time):
-
-  OK  user_country         5,000 / 5,000 matched
-  OK  account_age_days     5,000 / 5,000 matched
-  OK  rolling_spend_30d    5,000 / 5,000 matched
-  OK  days_since_login     5,000 / 5,000 matched
-
-  Written   train_CLEAN.parquet (5,000 rows, 7 cols)
-```
-
-Verify:
+Verify the new dataset is clean:
 
 ```bash
 timefence audit train_CLEAN.parquet
-# ALL CLEAN - no temporal leakage detected
+# ALL CLEAN — no temporal leakage detected
 ```
 
-## Audit Your Existing Data
-
-You don't need to change your pipeline. Point Timefence at any training set you already have:
+Already have a training set? Audit it directly — no config needed:
 
 ```bash
-timefence audit your_training_set.parquet --features features.py --keys user_id --label-time label_time
+timefence audit your_data.parquet --features features.py --keys user_id --label-time label_time
 ```
 
-If it's clean, you'll know. If it's not, you'll see exactly which features leak, how many rows, and the severity. Takes seconds.
+See the [Getting Started guide](https://timefence.dev/getting-started/installation/) for more.
 
 ## Python API
-
-Audit any existing dataset for temporal leakage:
 
 ```python
 import timefence
 
-report = timefence.audit(
-    "train.parquet",
-    keys=["user_id"],
-    label_time="label_time",
-    feature_time_columns={"rolling_spend_30d": "feature_ts", "days_since_login": "feature_ts"},
-)
-report.assert_clean()  # raises if leakage found
-```
-
-Or define sources and features to build a correct dataset from scratch:
-
-```python
 users = timefence.Source(path="data/users.parquet", keys=["user_id"], timestamp="updated_at")
 txns  = timefence.Source(path="data/txns.parquet", keys=["user_id"], timestamp="created_at")
 
@@ -132,6 +92,23 @@ labels = timefence.Labels(
 )
 
 result = timefence.build(labels=labels, features=[country, spend], output="train.parquet")
+result  # renders in Jupyter
+```
+
+<p align="center">
+  <img src="docs/assets/jupyter-output.png" alt="BuildResult rendered in Jupyter" width="550">
+</p>
+
+Audit an existing dataset without rebuilding:
+
+```python
+report = timefence.audit(
+    "train.parquet",
+    features=[country, spend],
+    keys=["user_id"],
+    label_time="label_time",
+)
+report.assert_clean()  # raises if leakage found
 ```
 
 ## Add to CI
@@ -169,7 +146,11 @@ uv run python benchmarks/bench.py --quick --include-pandas
 
 ## How It Works
 
-Timefence generates SQL (ASOF JOIN or ROW_NUMBER) and runs it in an embedded DuckDB. No server, no JVM, no Spark. It enforces one rule — `feature_time < label_time - embargo` — for every row, every feature, every build. Every query is inspectable via `timefence -v build` or `timefence explain`.
+1. **Define** — declare sources, features, and labels in Python or `timefence.yaml`
+2. **Build** — Timefence generates SQL (ASOF JOIN or ROW_NUMBER) and runs it in an embedded DuckDB, enforcing `feature_time < label_time - embargo` for every row
+3. **Audit** — point at any existing dataset to check for leakage, no rebuild needed
+
+No server, no JVM, no Spark. Every query is inspectable via `timefence -v build` or `timefence explain`.
 
 ## All Features
 
@@ -198,6 +179,10 @@ Timefence generates SQL (ASOF JOIN or ROW_NUMBER) and runs it in an embedded Duc
 One tool. One job. Temporal correctness for ML training data.
 
 ---
+
+<p align="center">
+  If Timefence helps you, consider giving it a <a href="https://github.com/gauthierpiarrette/timefence">⭐️ on GitHub</a> — it helps others find it.
+</p>
 
 <p align="center">
   <a href="https://timefence.dev">Documentation</a> &middot;
