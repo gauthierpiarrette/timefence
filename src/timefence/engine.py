@@ -309,11 +309,15 @@ def _format_leakage(td: timedelta) -> str:
     days = td.days
     if days > 0:
         return f"{days} day{'s' if days != 1 else ''}"
-    hours = int(td.total_seconds() // 3600)
+    total_seconds = td.total_seconds()
+    hours = int(total_seconds // 3600)
     if hours > 0:
         return f"{hours} hour{'s' if hours != 1 else ''}"
-    minutes = int(td.total_seconds() // 60)
-    return f"{minutes} minute{'s' if minutes != 1 else ''}"
+    minutes = int(total_seconds // 60)
+    if minutes > 0:
+        return f"{minutes} minute{'s' if minutes != 1 else ''}"
+    seconds = int(total_seconds)
+    return f"{seconds} second{'s' if seconds != 1 else ''}"
 
 
 def _classify_severity(pct: float, max_leakage: timedelta | None) -> str:
@@ -404,31 +408,7 @@ class DiffResult:
 # ---------------------------------------------------------------------------
 
 
-def _qi(name: str) -> str:
-    """Quote a SQL identifier (column name, table name) for DuckDB.
-
-    Wraps the name in double quotes and escapes any internal double quotes.
-    Example: my col -> "my col", it"s -> "it""s"
-    """
-    return '"' + name.replace('"', '""') + '"'
-
-
-def _ql(value: str | Path) -> str:
-    """Quote a value as a SQL single-quoted string literal.
-
-    Wraps in single quotes and escapes any internal single quotes.
-    Example: it's -> 'it''s'
-    """
-    return "'" + str(value).replace("'", "''") + "'"
-
-
-def _safe_name(name: str) -> str:
-    """Sanitize a string for use in SQL table/alias names.
-
-    Replaces non-alphanumeric characters (except underscores) with underscores.
-    """
-    return "".join(c if c.isalnum() or c == "_" else "_" for c in name) or "_unnamed"
-
+from timefence._sql_utils import _qi, _ql, _safe_name  # noqa: E402
 
 # ---------------------------------------------------------------------------
 # Internal helpers
@@ -1184,10 +1164,8 @@ def build(
                 all_sql.extend(feat_sqls)
                 for s in feat_sqls:
                     logger.info("Feature SQL [%s]:\n  %s", feat.name, s)
-            else:
-                logger.info("Feature [%s]: loaded from cache", feat.name)
 
-                # Save to feature cache
+                # Save freshly computed feature to cache
                 if store is not None and fck is not None:
                     cache_path = store.feature_cache_path(feat.name, fck)
                     try:
@@ -1198,6 +1176,8 @@ def build(
                         logger.warning(
                             "Feature cache write failed for %s: %s", feat.name, exc
                         )
+            else:
+                logger.info("Feature [%s]: loaded from cache", feat.name)
 
             feature_tables[feat.name] = (feat_table, output_cols)
 

@@ -24,20 +24,7 @@ from timefence._version import __version__
 logger = logging.getLogger(__name__)
 
 
-def _ql(value: str | Path) -> str:
-    """Quote a value as a SQL single-quoted string literal."""
-    return "'" + str(value).replace("'", "''") + "'"
-
-
-def _qi(name: str) -> str:
-    """Quote a SQL identifier (column name, table name) for DuckDB."""
-    return '"' + name.replace('"', '""') + '"'
-
-
-def _safe_name(name: str) -> str:
-    """Sanitize a string for use in SQL table/alias names."""
-    return "".join(c if c.isalnum() or c == "_" else "_" for c in name) or "_unnamed"
-
+from timefence._sql_utils import _qi, _ql, _safe_name  # noqa: E402
 
 console = Console()
 err_console = Console(stderr=True)

@@ -6,6 +6,8 @@ from pathlib import Path
 
 import duckdb
 
+from timefence._sql_utils import _ql
+
 
 def generate_quickstart(project_name: str, *, minimal: bool = False) -> Path:
     """Generate a self-contained example project.
@@ -78,7 +80,7 @@ def _generate_users(
                 ]) AS updated_at
             ) snapshots
             ORDER BY user_id, updated_at
-        ) TO '{str(data_dir / "users.parquet").replace("'", "''")}' (FORMAT PARQUET)
+        ) TO {_ql(data_dir / "users.parquet")} (FORMAT PARQUET)
     """)
 
 
@@ -95,7 +97,7 @@ def _generate_transactions(
                     + INTERVAL (i * 13 % 24) HOUR AS created_at,
                 ROUND((50 + (i * 17 % 500))::DOUBLE / 10, 2) AS amount
             FROM generate_series(1, {n_txns}) t(i)
-        ) TO '{str(data_dir / "transactions.parquet").replace("'", "''")}' (FORMAT PARQUET)
+        ) TO {_ql(data_dir / "transactions.parquet")} (FORMAT PARQUET)
     """)
 
 
@@ -110,7 +112,7 @@ def _generate_labels(
                 TIMESTAMP '2023-06-01' + INTERVAL (i * 11 % 548) DAY AS label_time,
                 CASE WHEN i % 5 = 0 THEN true ELSE false END AS churned
             FROM generate_series(1, {n_labels}) t(i)
-        ) TO '{str(data_dir / "labels.parquet").replace("'", "''")}' (FORMAT PARQUET)
+        ) TO {_ql(data_dir / "labels.parquet")} (FORMAT PARQUET)
     """)
 
 
@@ -122,15 +124,15 @@ def _generate_leaky_dataset(conn: duckdb.DuckDBPyConnection, data_dir: Path) -> 
     """
     conn.execute(f"""
         CREATE TEMP TABLE labels AS
-        SELECT * FROM read_parquet('{str(data_dir / "labels.parquet").replace("'", "''")}')
+        SELECT * FROM read_parquet({_ql(data_dir / "labels.parquet")})
     """)
     conn.execute(f"""
         CREATE TEMP TABLE users AS
-        SELECT * FROM read_parquet('{str(data_dir / "users.parquet").replace("'", "''")}')
+        SELECT * FROM read_parquet({_ql(data_dir / "users.parquet")})
     """)
     conn.execute(f"""
         CREATE TEMP TABLE txns AS
-        SELECT * FROM read_parquet('{str(data_dir / "transactions.parquet").replace("'", "''")}')
+        SELECT * FROM read_parquet({_ql(data_dir / "transactions.parquet")})
     """)
 
     # Build with leaky joins: use <= instead of < AND allow some future data
@@ -200,7 +202,7 @@ def _generate_leaky_dataset(conn: duckdb.DuckDBPyConnection, data_dir: Path) -> 
             LEFT JOIN spend_feat sf ON uf.user_id = sf.user_id AND uf.label_time = sf.label_time
             LEFT JOIN login_feat lf ON uf.user_id = lf.user_id AND uf.label_time = lf.label_time
             ORDER BY uf.user_id, uf.label_time
-        ) TO '{str(data_dir / "train_LEAKY.parquet").replace("'", "''")}' (FORMAT PARQUET)
+        ) TO {_ql(data_dir / "train_LEAKY.parquet")} (FORMAT PARQUET)
     """)
 
 
