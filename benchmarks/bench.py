@@ -277,8 +277,8 @@ def main():
     configs = QUICK_CONFIGS if args.quick else CONFIGS
     all_results = []
 
-    print(f"\nTimefence Benchmark Suite")
-    print(f"========================")
+    print("\nTimefence Benchmark Suite")
+    print("========================")
     print(f"  Python {platform.python_version()} | DuckDB {duckdb.__version__} | Timefence {timefence.__version__}")
     print(f"  {args.runs} runs per scenario (median reported) | seed={SEED}")
     print()
