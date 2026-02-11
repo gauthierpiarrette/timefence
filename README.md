@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="docs/logo.png" alt="Timefence" width="80">
+  <img src="docs/assets/logo.png" alt="Timefence" width="80">
 </p>
 
 <h1 align="center">Timefence</h1>
@@ -17,8 +17,7 @@
 </p>
 
 <p align="center">
-  <a href="https://timefence.dev">Website</a> &middot;
-  <a href="https://timefence.dev/documentation">Docs</a> &middot;
+  <a href="https://timefence.dev">Docs</a> &middot;
   <a href="CHANGELOG.md">Changelog</a> &middot;
   <a href="CONTRIBUTING.md">Contributing</a>
 </p>
@@ -99,12 +98,17 @@ If it's clean, you'll know. If it's not, you'll see exactly which features leak,
 
 ## Python API
 
-Audit any existing dataset — no sources or feature definitions needed:
+Audit any existing dataset for temporal leakage:
 
 ```python
 import timefence
 
-report = timefence.audit("train.parquet", keys=["user_id"], label_time="label_time")
+report = timefence.audit(
+    "train.parquet",
+    keys=["user_id"],
+    label_time="label_time",
+    feature_time_columns={"rolling_spend_30d": "feature_ts", "days_since_login": "feature_ts"},
+)
 report.assert_clean()  # raises if leakage found
 ```
 
@@ -196,7 +200,7 @@ One tool. One job. Temporal correctness for ML training data.
 ---
 
 <p align="center">
-  <a href="https://timefence.dev/documentation">Documentation</a> &middot;
+  <a href="https://timefence.dev">Documentation</a> &middot;
   <a href="CONTRIBUTING.md">Contributing</a> &middot;
   <a href="CHANGELOG.md">Changelog</a>
 </p>
