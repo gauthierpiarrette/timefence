@@ -15,4 +15,5 @@ htmlcov/
 .coverage
 *.parquet
 .timefence/
+site/
 uv.lock

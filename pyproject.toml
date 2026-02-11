@@ -58,6 +58,10 @@ dev = [
     "taskipy>=1.12.0",
     "pre-commit>=3.0.0",
 ]
+docs = [
+    "zensical>=0.0.21; python_version>='3.10'",
+    "mkdocstrings[python]>=0.24.0; python_version>='3.10'",
+]
 all = [
     "ipython>=7.0.0",
     "dbt-core>=1.0.0",
@@ -68,7 +72,7 @@ timefence = "timefence.cli:cli"
 
 [project.urls]
 Homepage = "https://timefence.dev"
-Documentation = "https://timefence.dev/documentation"
+Documentation = "https://timefence.dev"
 Repository = "https://github.com/gauthierpiarrette/timefence"
 Issues = "https://github.com/gauthierpiarrette/timefence/issues"
 Changelog = "https://github.com/gauthierpiarrette/timefence/blob/main/CHANGELOG.md"
@@ -101,6 +105,8 @@ format-check = "ruff format --check src/ tests/"
 test = "pytest tests/ --ignore=tests/test_property.py"
 test-all = "pytest tests/"
 check = "task lint && task format-check && task test"
+docs = "zensical serve"
+docs-build = "zensical build"
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
