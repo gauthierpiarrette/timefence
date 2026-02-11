@@ -23,6 +23,16 @@ from timefence.errors import (
 )
 
 
+def _has_pytz() -> bool:
+    """Check if pytz is available (needed for DuckDB TIMESTAMPTZ)."""
+    try:
+        import pytz  # noqa: F401
+
+        return True
+    except ImportError:
+        return False
+
+
 class TestBuildBasic:
     """Core build functionality tests."""
 
@@ -1390,6 +1400,9 @@ class TestDuplicateKeyTimestamp:
 class TestTimezoneMismatch:
     """Build should raise TimefenceTimezoneError when tz-aware meets tz-naive."""
 
+    @pytest.mark.skipif(
+        not _has_pytz(), reason="pytz required for TIMESTAMPTZ support in DuckDB"
+    )
     def test_tz_aware_labels_vs_naive_features(self, tmp_path):
         """TIMESTAMPTZ labels + TIMESTAMP features → timezone error."""
         conn = duckdb.connect()
