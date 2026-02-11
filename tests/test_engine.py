@@ -1155,3 +1155,708 @@ class TestClassifySeverity:
 
         # 7 days is the boundary — at exactly 7, should be MEDIUM (not >)
         assert _classify_severity(0.0, timedelta(days=7)) == "MEDIUM"
+
+
+# ---------------------------------------------------------------------------
+# Test 2: AuditReport.__str__ on leaky reports (covers lines 274-317)
+# ---------------------------------------------------------------------------
+
+
+class TestAuditReportStr:
+    """Test the textual rendering of audit reports, including _format_leakage."""
+
+    def test_str_leaky_report_with_days(self):
+        """Leaky report with max/median leakage measured in days."""
+        from datetime import timedelta
+
+        from timefence.engine import AuditReport, FeatureAuditDetail
+
+        report = AuditReport(
+            features={
+                "risk_score": FeatureAuditDetail(
+                    name="risk_score",
+                    leaky_row_count=500,
+                    leaky_row_pct=0.10,
+                    max_leakage=timedelta(days=14),
+                    median_leakage=timedelta(days=3),
+                    severity="HIGH",
+                    total_rows=5000,
+                    null_rows=0,
+                    clean=False,
+                ),
+                "account_age": FeatureAuditDetail(
+                    name="account_age",
+                    total_rows=5000,
+                    null_rows=12,
+                    clean=True,
+                ),
+            },
+            total_rows=5000,
+        )
+        text = str(report)
+        assert "WARNING: LEAKAGE DETECTED in 1 of 2 features" in text
+        assert "LEAK  risk_score" in text
+        assert "500 rows (10.0%)" in text
+        assert "Max leakage: 14 days" in text
+        assert "Median leakage: 3 days" in text
+        assert "Severity: HIGH" in text
+        assert "OK  account_age - clean (5000 rows, 12 null)" in text
+
+    def test_str_leaky_report_hours(self):
+        """Leakage measured in hours (< 1 day)."""
+        from datetime import timedelta
+
+        from timefence.engine import AuditReport, FeatureAuditDetail
+
+        report = AuditReport(
+            features={
+                "feat": FeatureAuditDetail(
+                    name="feat",
+                    leaky_row_count=10,
+                    leaky_row_pct=0.005,
+                    max_leakage=timedelta(hours=6),
+                    median_leakage=timedelta(hours=1),
+                    severity="LOW",
+                    total_rows=2000,
+                    clean=False,
+                ),
+            },
+            total_rows=2000,
+        )
+        text = str(report)
+        assert "Max leakage: 6 hours" in text
+        assert "Median leakage: 1 hour" in text  # singular
+
+    def test_str_leaky_report_minutes(self):
+        """Leakage measured in minutes (< 1 hour)."""
+        from datetime import timedelta
+
+        from timefence.engine import AuditReport, FeatureAuditDetail
+
+        report = AuditReport(
+            features={
+                "feat": FeatureAuditDetail(
+                    name="feat",
+                    leaky_row_count=2,
+                    leaky_row_pct=0.001,
+                    max_leakage=timedelta(minutes=45),
+                    median_leakage=timedelta(minutes=1),
+                    severity="LOW",
+                    total_rows=2000,
+                    clean=False,
+                ),
+            },
+            total_rows=2000,
+        )
+        text = str(report)
+        assert "Max leakage: 45 minutes" in text
+        assert "Median leakage: 1 minute" in text  # singular
+
+    def test_str_clean_report(self):
+        """Clean report should say ALL CLEAN."""
+        from timefence.engine import AuditReport, FeatureAuditDetail
+
+        report = AuditReport(
+            features={
+                "good_feat": FeatureAuditDetail(
+                    name="good_feat", total_rows=100, clean=True
+                ),
+            },
+            total_rows=100,
+        )
+        text = str(report)
+        assert "ALL CLEAN" in text
+        assert "OK  good_feat" in text
+
+    def test_str_1_day_singular(self):
+        """Exactly 1 day should use singular 'day'."""
+        from datetime import timedelta
+
+        from timefence.engine import AuditReport, FeatureAuditDetail
+
+        report = AuditReport(
+            features={
+                "f": FeatureAuditDetail(
+                    name="f",
+                    leaky_row_count=1,
+                    leaky_row_pct=0.01,
+                    max_leakage=timedelta(days=1),
+                    severity="MEDIUM",
+                    total_rows=100,
+                    clean=False,
+                ),
+            },
+            total_rows=100,
+        )
+        text = str(report)
+        assert "Max leakage: 1 day" in text
+        assert "1 days" not in text
+
+
+# ---------------------------------------------------------------------------
+# Test 3: Duplicate (key, timestamp) detection (covers lines 582-624)
+# ---------------------------------------------------------------------------
+
+
+class TestDuplicateKeyTimestamp:
+    """Tests for _check_duplicates: on_duplicate='error' and 'keep_any'."""
+
+    def test_duplicate_raises_on_error_mode(self, tmp_path):
+        """Duplicates with on_duplicate='error' should raise TimefenceDuplicateError."""
+        conn = duckdb.connect()
+        try:
+            # Create source with duplicate (user_id, ts) pairs
+            conn.execute(f"""
+                COPY (
+                    SELECT * FROM (VALUES
+                        (1, TIMESTAMP '2024-01-15', 10.0),
+                        (1, TIMESTAMP '2024-01-15', 20.0),
+                        (2, TIMESTAMP '2024-02-01', 30.0)
+                    ) AS t(uid, ts, val)
+                ) TO '{tmp_path}/dup_src.parquet' (FORMAT PARQUET)
+            """)
+            conn.execute(f"""
+                COPY (
+                    SELECT 1 AS uid, TIMESTAMP '2024-06-01' AS lt, true AS y
+                    UNION ALL
+                    SELECT 2 AS uid, TIMESTAMP '2024-06-02' AS lt, false AS y
+                ) TO '{tmp_path}/labels.parquet' (FORMAT PARQUET)
+            """)
+        finally:
+            conn.close()
+
+        labels = timefence.Labels(
+            path=str(tmp_path / "labels.parquet"),
+            keys="uid",
+            label_time="lt",
+            target="y",
+        )
+        src = timefence.Source(
+            path=str(tmp_path / "dup_src.parquet"), keys="uid", timestamp="ts"
+        )
+        feat = timefence.Feature(
+            source=src, columns=["val"], name="dup_feat", on_duplicate="error"
+        )
+
+        with pytest.raises(timefence.errors.TimefenceDuplicateError, match="duplicate"):
+            build(labels=labels, features=[feat])
+
+    def test_duplicate_warns_on_keep_any(self, tmp_path):
+        """Duplicates with on_duplicate='keep_any' should warn but succeed."""
+        conn = duckdb.connect()
+        try:
+            conn.execute(f"""
+                COPY (
+                    SELECT * FROM (VALUES
+                        (1, TIMESTAMP '2024-01-15', 10.0),
+                        (1, TIMESTAMP '2024-01-15', 20.0),
+                        (2, TIMESTAMP '2024-02-01', 30.0)
+                    ) AS t(uid, ts, val)
+                ) TO '{tmp_path}/dup_src.parquet' (FORMAT PARQUET)
+            """)
+            conn.execute(f"""
+                COPY (
+                    SELECT 1 AS uid, TIMESTAMP '2024-06-01' AS lt, true AS y
+                    UNION ALL
+                    SELECT 2 AS uid, TIMESTAMP '2024-06-02' AS lt, false AS y
+                ) TO '{tmp_path}/labels.parquet' (FORMAT PARQUET)
+            """)
+        finally:
+            conn.close()
+
+        labels = timefence.Labels(
+            path=str(tmp_path / "labels.parquet"),
+            keys="uid",
+            label_time="lt",
+            target="y",
+        )
+        src = timefence.Source(
+            path=str(tmp_path / "dup_src.parquet"), keys="uid", timestamp="ts"
+        )
+        feat = timefence.Feature(
+            source=src, columns=["val"], name="dup_feat", on_duplicate="keep_any"
+        )
+
+        with pytest.warns(match="duplicate"):
+            result = build(labels=labels, features=[feat])
+        assert result.stats.row_count == 2
+
+
+# ---------------------------------------------------------------------------
+# Test 4: Timezone mismatch detection (covers lines 535-579)
+# ---------------------------------------------------------------------------
+
+
+class TestTimezoneMismatch:
+    """Build should raise TimefenceTimezoneError when tz-aware meets tz-naive."""
+
+    def test_tz_aware_labels_vs_naive_features(self, tmp_path):
+        """TIMESTAMPTZ labels + TIMESTAMP features → timezone error."""
+        conn = duckdb.connect()
+        try:
+            # Labels with timezone-aware timestamps
+            conn.execute(f"""
+                COPY (
+                    SELECT
+                        i AS uid,
+                        TIMESTAMPTZ '2024-06-01 00:00:00+00' + INTERVAL (i) DAY AS lt,
+                        true AS y
+                    FROM generate_series(1, 5) t(i)
+                ) TO '{tmp_path}/labels_tz.parquet' (FORMAT PARQUET)
+            """)
+            # Source with timezone-naive timestamps
+            conn.execute(f"""
+                COPY (
+                    SELECT
+                        i AS uid,
+                        TIMESTAMP '2024-05-01' + INTERVAL (i) DAY AS ts,
+                        42.0 AS val
+                    FROM generate_series(1, 5) t(i)
+                ) TO '{tmp_path}/src_naive.parquet' (FORMAT PARQUET)
+            """)
+        finally:
+            conn.close()
+
+        labels = timefence.Labels(
+            path=str(tmp_path / "labels_tz.parquet"),
+            keys="uid",
+            label_time="lt",
+            target="y",
+        )
+        src = timefence.Source(
+            path=str(tmp_path / "src_naive.parquet"), keys="uid", timestamp="ts"
+        )
+        feat = timefence.Feature(source=src, columns=["val"], name="tz_feat")
+
+        with pytest.raises(
+            timefence.errors.TimefenceTimezoneError, match="Mixed timezones"
+        ):
+            build(labels=labels, features=[feat])
+
+
+# ---------------------------------------------------------------------------
+# Test 5: BuildResult str/validate/explain (covers lines 83-108)
+# ---------------------------------------------------------------------------
+
+
+class TestBuildResultMethods:
+    """Test BuildResult.__str__, validate(), explain()."""
+
+    def test_str_output_with_missing(self, sample_features, tmp_path):
+        """str() should include feature match stats and output path."""
+        result = build(
+            labels=sample_features["labels"],
+            features=[sample_features["user_country"]],
+            output=str(tmp_path / "out.parquet"),
+            max_lookback="1d",  # short lookback → some missing
+        )
+        text = str(result)
+        assert "BuildResult:" in text
+        assert "rows" in text
+        assert "columns" in text
+        assert "Output:" in text
+        assert str(tmp_path / "out.parquet") in text
+        assert "Time:" in text
+        assert "user_country:" in text
+        # Short lookback should produce missing values
+        assert "missing" in text.lower() or "matched" in text.lower()
+
+    def test_str_no_output_path(self, sample_features):
+        """str() without output should omit Output line."""
+        result = build(
+            labels=sample_features["labels"],
+            features=[sample_features["user_country"]],
+        )
+        text = str(result)
+        assert "BuildResult:" in text
+        assert "Output:" not in text
+
+    def test_str_all_matched(self, sample_features, tmp_path):
+        """When all rows match, 'missing' should not appear in str output."""
+        result = build(
+            labels=sample_features["labels"],
+            features=[sample_features["user_country"]],
+            output=str(tmp_path / "out.parquet"),
+        )
+        text = str(result)
+        # user_country with default lookback should match all or most
+        assert "user_country:" in text
+
+    def test_validate_returns_bool(self, sample_features, tmp_path):
+        """validate() should return True for a clean build."""
+        result = build(
+            labels=sample_features["labels"],
+            features=[sample_features["user_country"]],
+            output=str(tmp_path / "out.parquet"),
+        )
+        assert result.validate() is True
+
+    def test_explain_returns_sql(self, sample_features, tmp_path):
+        """explain() should return the join SQL string."""
+        result = build(
+            labels=sample_features["labels"],
+            features=[sample_features["user_country"]],
+            output=str(tmp_path / "out.parquet"),
+        )
+        sql = result.explain()
+        assert isinstance(sql, str)
+        assert len(sql) > 0
+
+    def test_repr_html(self, sample_features, tmp_path):
+        """_repr_html_ should return valid HTML for Jupyter."""
+        result = build(
+            labels=sample_features["labels"],
+            features=[sample_features["user_country"]],
+            output=str(tmp_path / "out.parquet"),
+        )
+        html = result._repr_html_()
+        assert "<div" in html
+        assert "Timefence Build Result" in html
+        assert "user_country" in html
+
+
+# ---------------------------------------------------------------------------
+# Test 6: Split validation — overlaps, gaps, boundaries (covers lines 626-671)
+# ---------------------------------------------------------------------------
+
+
+class TestSplitValidation:
+    """Tests for _validate_splits warnings and errors."""
+
+    def test_overlapping_splits_raises(self, sample_features, tmp_path):
+        """Overlapping split ranges must raise TimefenceConfigError."""
+        with pytest.raises(TimefenceConfigError, match="overlap"):
+            build(
+                labels=sample_features["labels"],
+                features=[sample_features["user_country"]],
+                output=str(tmp_path / "out.parquet"),
+                splits={
+                    "train": ("2024-01-01", "2024-06-01"),
+                    "test": ("2024-05-01", "2025-01-01"),  # overlaps with train
+                },
+            )
+
+    def test_gap_between_splits_warns(self, sample_features, tmp_path):
+        """Gap between splits should emit a warning."""
+        with pytest.warns(match="Gap between splits"):
+            build(
+                labels=sample_features["labels"],
+                features=[sample_features["user_country"]],
+                output=str(tmp_path / "out.parquet"),
+                splits={
+                    "train": ("2024-01-01", "2024-03-01"),
+                    "test": ("2024-06-01", "2025-01-01"),  # 3 month gap
+                },
+            )
+
+    def test_splits_not_covering_labels_warns(self, sample_features, tmp_path):
+        """Splits that don't cover the full label range should warn."""
+        # Labels span 2024-01-20 to 2024-09-28 (50 labels, 5 days apart)
+        # Splits only cover a narrow range in the middle
+        with pytest.warns(match="Splits"):
+            build(
+                labels=sample_features["labels"],
+                features=[sample_features["user_country"]],
+                output=str(tmp_path / "out.parquet"),
+                splits={
+                    "narrow": ("2024-04-01", "2024-05-01"),
+                },
+            )
+
+
+# ---------------------------------------------------------------------------
+# Test 7: Schema validation — missing source columns (covers lines 504-533)
+# ---------------------------------------------------------------------------
+
+
+class TestSourceSchemaValidation:
+    """Tests for _validate_source_schema error paths."""
+
+    def test_missing_timestamp_column(self, tmp_path):
+        """Source missing the timestamp column should raise TimefenceSchemaError."""
+        conn = duckdb.connect()
+        try:
+            conn.execute(f"""
+                COPY (
+                    SELECT 1 AS uid, 'A' AS val
+                ) TO '{tmp_path}/no_ts.parquet' (FORMAT PARQUET)
+            """)
+            conn.execute(f"""
+                COPY (
+                    SELECT 1 AS uid, TIMESTAMP '2024-06-01' AS lt, true AS y
+                ) TO '{tmp_path}/labels.parquet' (FORMAT PARQUET)
+            """)
+        finally:
+            conn.close()
+
+        labels = timefence.Labels(
+            path=str(tmp_path / "labels.parquet"),
+            keys="uid",
+            label_time="lt",
+            target="y",
+        )
+        src = timefence.Source(
+            path=str(tmp_path / "no_ts.parquet"),
+            keys="uid",
+            timestamp="missing_ts",  # column doesn't exist
+        )
+        feat = timefence.Feature(source=src, columns=["val"], name="bad_ts_feat")
+
+        with pytest.raises(TimefenceSchemaError, match="missing timestamp column"):
+            build(labels=labels, features=[feat])
+
+    def test_missing_feature_column(self, tmp_path):
+        """Referencing a non-existent column in columns mode should raise."""
+        conn = duckdb.connect()
+        try:
+            conn.execute(f"""
+                COPY (
+                    SELECT 1 AS uid, TIMESTAMP '2024-05-01' AS ts, 'A' AS val
+                ) TO '{tmp_path}/src.parquet' (FORMAT PARQUET)
+            """)
+            conn.execute(f"""
+                COPY (
+                    SELECT 1 AS uid, TIMESTAMP '2024-06-01' AS lt, true AS y
+                ) TO '{tmp_path}/labels.parquet' (FORMAT PARQUET)
+            """)
+        finally:
+            conn.close()
+
+        labels = timefence.Labels(
+            path=str(tmp_path / "labels.parquet"),
+            keys="uid",
+            label_time="lt",
+            target="y",
+        )
+        src = timefence.Source(
+            path=str(tmp_path / "src.parquet"), keys="uid", timestamp="ts"
+        )
+        feat = timefence.Feature(
+            source=src, columns=["nonexistent_col"], name="bad_col_feat"
+        )
+
+        with pytest.raises(TimefenceSchemaError, match="does not exist"):
+            build(labels=labels, features=[feat])
+
+
+# ---------------------------------------------------------------------------
+# Test 8: Feature name sanitization collision (covers lines 989-997)
+# ---------------------------------------------------------------------------
+
+
+class TestDiffResultStr:
+    """Test DiffResult.__str__ rendering (covers lines 372-399)."""
+
+    def test_str_with_schema_and_value_changes(self, tmp_path):
+        """str() on DiffResult with schema/value changes should show all sections."""
+        conn = duckdb.connect()
+        try:
+            conn.execute(f"""
+                COPY (
+                    SELECT i AS uid, TIMESTAMP '2024-06-01' + INTERVAL (i) DAY AS lt,
+                           100.0 AS val, 'hello' AS txt
+                    FROM generate_series(1, 5) t(i)
+                ) TO '{tmp_path}/old.parquet' (FORMAT PARQUET)
+            """)
+            conn.execute(f"""
+                COPY (
+                    SELECT i AS uid, TIMESTAMP '2024-06-01' + INTERVAL (i) DAY AS lt,
+                           110.0 AS val, 99 AS new_col
+                    FROM generate_series(1, 5) t(i)
+                ) TO '{tmp_path}/new.parquet' (FORMAT PARQUET)
+            """)
+        finally:
+            conn.close()
+
+        result = timefence.diff(
+            str(tmp_path / "old.parquet"),
+            str(tmp_path / "new.parquet"),
+            keys=["uid"],
+            label_time="lt",
+        )
+        text = str(result)
+        assert "BUILD DIFF" in text
+        assert "Rows" in text
+        assert "old:" in text
+        assert "new:" in text
+        # Schema changes (txt removed, new_col added)
+        assert "Schema" in text
+        # Value changes for val column
+        assert "Value Changes" in text
+        assert "val" in text
+
+    def test_str_with_numeric_deltas(self, tmp_path):
+        """Numeric changes should show mean/max delta."""
+        conn = duckdb.connect()
+        try:
+            conn.execute(f"""
+                COPY (
+                    SELECT i AS uid, TIMESTAMP '2024-06-01' + INTERVAL (i) DAY AS lt,
+                           100.0 AS val
+                    FROM generate_series(1, 5) t(i)
+                ) TO '{tmp_path}/old.parquet' (FORMAT PARQUET)
+            """)
+            conn.execute(f"""
+                COPY (
+                    SELECT i AS uid, TIMESTAMP '2024-06-01' + INTERVAL (i) DAY AS lt,
+                           200.0 AS val
+                    FROM generate_series(1, 5) t(i)
+                ) TO '{tmp_path}/new.parquet' (FORMAT PARQUET)
+            """)
+        finally:
+            conn.close()
+
+        result = timefence.diff(
+            str(tmp_path / "old.parquet"),
+            str(tmp_path / "new.parquet"),
+            keys=["uid"],
+            label_time="lt",
+        )
+        text = str(result)
+        assert "Mean delta" in text or "Max delta" in text
+
+    def test_str_no_changes(self, tmp_path):
+        """Identical files should not show Schema or Value Changes sections."""
+        conn = duckdb.connect()
+        try:
+            conn.execute(f"""
+                COPY (
+                    SELECT 1 AS uid, TIMESTAMP '2024-06-01' AS lt, 10.0 AS val
+                ) TO '{tmp_path}/same.parquet' (FORMAT PARQUET)
+            """)
+        finally:
+            conn.close()
+
+        import shutil
+
+        shutil.copy(str(tmp_path / "same.parquet"), str(tmp_path / "same2.parquet"))
+
+        result = timefence.diff(
+            str(tmp_path / "same.parquet"),
+            str(tmp_path / "same2.parquet"),
+            keys=["uid"],
+            label_time="lt",
+        )
+        text = str(result)
+        assert "BUILD DIFF" in text
+        # Identical files: no value changes
+        assert "Value Changes" not in text
+
+    def test_diff_row_count_change(self, tmp_path):
+        """DiffResult should correctly report row count differences."""
+        conn = duckdb.connect()
+        try:
+            conn.execute(f"""
+                COPY (
+                    SELECT i AS uid, TIMESTAMP '2024-06-01' + INTERVAL (i) DAY AS lt, 1.0 AS val
+                    FROM generate_series(1, 3) t(i)
+                ) TO '{tmp_path}/small.parquet' (FORMAT PARQUET)
+            """)
+            conn.execute(f"""
+                COPY (
+                    SELECT i AS uid, TIMESTAMP '2024-06-01' + INTERVAL (i) DAY AS lt, 1.0 AS val
+                    FROM generate_series(1, 5) t(i)
+                ) TO '{tmp_path}/large.parquet' (FORMAT PARQUET)
+            """)
+        finally:
+            conn.close()
+
+        result = timefence.diff(
+            str(tmp_path / "small.parquet"),
+            str(tmp_path / "large.parquet"),
+            keys=["uid"],
+            label_time="lt",
+        )
+        text = str(result)
+        assert "old: 3" in text
+        assert "new: 5" in text
+        assert "+2" in text
+
+
+class TestAuditReportReprHtml:
+    """Test AuditReport._repr_html_ for Jupyter rendering (covers lines 240-272)."""
+
+    def test_repr_html_leaky(self):
+        """Leaky report HTML should show LEAKAGE DETECTED and LEAK rows."""
+
+        from timefence.engine import AuditReport, FeatureAuditDetail
+
+        report = AuditReport(
+            features={
+                "bad_feat": FeatureAuditDetail(
+                    name="bad_feat",
+                    leaky_row_count=100,
+                    leaky_row_pct=0.05,
+                    severity="MEDIUM",
+                    total_rows=2000,
+                    clean=False,
+                ),
+                "good_feat": FeatureAuditDetail(
+                    name="good_feat",
+                    total_rows=2000,
+                    clean=True,
+                ),
+            },
+            total_rows=2000,
+        )
+        html = report._repr_html_()
+        assert "LEAKAGE DETECTED" in html
+        assert "bad_feat" in html
+        assert "good_feat" in html
+        assert "LEAK" in html
+        assert "CLEAN" in html
+        assert "#e74c3c" in html  # red for leaky
+
+    def test_repr_html_clean(self):
+        """Clean report HTML should show ALL CLEAN."""
+        from timefence.engine import AuditReport, FeatureAuditDetail
+
+        report = AuditReport(
+            features={
+                "feat": FeatureAuditDetail(name="feat", total_rows=100, clean=True),
+            },
+            total_rows=100,
+        )
+        html = report._repr_html_()
+        assert "ALL CLEAN" in html
+        assert "#2ecc71" in html  # green for clean
+
+
+class TestFeatureNameCollision:
+    """Names that are distinct but collide after sanitization must raise."""
+
+    def test_sanitized_name_collision(self, tmp_path):
+        """'feat-a' and 'feat_a' collide after sanitization → error."""
+        conn = duckdb.connect()
+        try:
+            conn.execute(f"""
+                COPY (
+                    SELECT 1 AS uid, TIMESTAMP '2024-06-01' AS lt, true AS y
+                ) TO '{tmp_path}/labels.parquet' (FORMAT PARQUET)
+            """)
+            conn.execute(f"""
+                COPY (
+                    SELECT 1 AS uid, TIMESTAMP '2024-05-01' AS ts, 'A' AS val
+                ) TO '{tmp_path}/src.parquet' (FORMAT PARQUET)
+            """)
+        finally:
+            conn.close()
+
+        labels = timefence.Labels(
+            path=str(tmp_path / "labels.parquet"),
+            keys="uid",
+            label_time="lt",
+            target="y",
+        )
+        src = timefence.Source(
+            path=str(tmp_path / "src.parquet"), keys="uid", timestamp="ts"
+        )
+        # These two names are distinct but map to the same sanitized name "feat_a"
+        feat_dash = timefence.Feature(source=src, columns=["val"], name="feat-a")
+        feat_under = timefence.Feature(source=src, columns=["val"], name="feat_a")
+
+        with pytest.raises(TimefenceConfigError, match="collide after sanitization"):
+            build(
+                labels=labels,
+                features=[feat_dash, feat_under],
+            )

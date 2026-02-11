@@ -326,6 +326,75 @@ class TestCLIDoctorJson:
             assert "checks" in data
 
 
+class TestCLIDoctorFullProject:
+    """Doctor on a full quickstart project exercises all check branches."""
+
+    def test_doctor_full_checks(self, runner, tmp_path):
+        """Doctor in a quickstart project should find config, features, labels, sources."""
+        import json as json_mod
+
+        with runner.isolated_filesystem(temp_dir=tmp_path):
+            res = runner.invoke(cli, ["quickstart", "proj", "--minimal"])
+            assert res.exit_code == 0
+
+            import os
+
+            os.chdir("proj")
+
+            result = runner.invoke(cli, ["doctor", "--json"])
+            assert result.exit_code == 0, result.output
+            data = json_mod.loads(result.output)
+            checks = data["checks"]
+            messages = [c["message"] for c in checks]
+            statuses = {c["message"]: c["status"] for c in checks}
+
+            # Config found
+            assert any("timefence.yaml" in m and "found" in m for m in messages)
+            # DuckDB available
+            assert any("DuckDB" in m for m in messages)
+            # Features loaded
+            assert any("features defined" in m for m in messages)
+            # Source files exist (no FAIL for missing source)
+            assert not any(
+                "Source file not found" in m
+                for m in messages
+                if statuses.get(m) == "FAIL"
+            )
+            # Label schema OK
+            assert any("Label file schema" in m for m in messages)
+            # No column conflicts
+            assert any("No column name conflicts" in m for m in messages)
+
+    def test_doctor_rich_output(self, runner, tmp_path):
+        """Doctor without --json should produce human-readable Rich output."""
+        with runner.isolated_filesystem(temp_dir=tmp_path):
+            runner.invoke(cli, ["quickstart", "proj", "--minimal"])
+            import os
+
+            os.chdir("proj")
+
+            result = runner.invoke(cli, ["doctor"])
+            assert result.exit_code == 0
+            assert "PROJECT HEALTH CHECK" in result.output
+            assert "OK" in result.output
+
+    def test_doctor_missing_features_file(self, runner, tmp_path):
+        """Doctor with config referencing missing features file should warn."""
+        import json as json_mod
+
+        with runner.isolated_filesystem(temp_dir=tmp_path):
+            # Create minimal config pointing to nonexistent features file
+            Path("timefence.yaml").write_text(
+                "name: test\nfeatures:\n  - missing_features.py\n"
+            )
+
+            result = runner.invoke(cli, ["doctor", "--json"])
+            assert result.exit_code == 0
+            data = json_mod.loads(result.output)
+            messages = [c["message"] for c in data["checks"]]
+            assert any("not found" in m for m in messages)
+
+
 class TestCLIInspectJson:
     def test_inspect_json(self, runner, tmp_data):
         import json as json_mod
