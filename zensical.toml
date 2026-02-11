@@ -1,0 +1,125 @@
+[project]
+site_name = "Timefence"
+site_url = "https://timefence.dev"
+site_description = "Temporal correctness layer for ML training data"
+site_author = "Gauthier Piarrette"
+repo_url = "https://github.com/gauthierpiarrette/timefence"
+repo_name = "gauthierpiarrette/timefence"
+edit_uri = "edit/main/docs"
+copyright = "MIT License"
+
+extra_css = ["stylesheets/extra.css"]
+
+nav = [
+  { "Home" = "index.md" },
+  { "Getting Started" = [
+    { "Installation" = "getting-started/installation.md" },
+    { "Quickstart" = "getting-started/quickstart.md" },
+  ]},
+  { "Core Concepts" = [
+    { "Temporal Correctness" = "concepts/temporal-correctness.md" },
+    { "Embargo" = "concepts/embargo.md" },
+    { "Join Logic" = "concepts/join-logic.md" },
+    { "Time-Based Splits" = "concepts/splits.md" },
+    { "Caching & Store" = "concepts/caching.md" },
+  ]},
+  { "Guides" = [
+    { "Audit Existing Data" = "guides/audit.md" },
+    { "Build from Scratch" = "guides/build.md" },
+    { "CI/CD Integration" = "guides/ci.md" },
+  ]},
+  { "API Reference" = [
+    { "Overview" = "api/index.md" },
+    { "Source" = "api/source.md" },
+    { "Feature" = "api/feature.md" },
+    { "Labels" = "api/labels.md" },
+    { "FeatureSet" = "api/featureset.md" },
+    { "build()" = "api/build.md" },
+    { "audit()" = "api/audit.md" },
+    { "explain()" = "api/explain.md" },
+    { "diff()" = "api/diff.md" },
+    { "Store" = "api/store.md" },
+  ]},
+  { "CLI Reference" = [
+    { "Overview" = "cli/index.md" },
+    { "audit" = "cli/audit.md" },
+    { "build" = "cli/build.md" },
+    { "explain" = "cli/explain.md" },
+    { "diff" = "cli/diff.md" },
+    { "inspect" = "cli/inspect.md" },
+    { "quickstart" = "cli/quickstart.md" },
+    { "catalog" = "cli/catalog.md" },
+    { "doctor" = "cli/doctor.md" },
+    { "init" = "cli/init.md" },
+  ]},
+  { "Reference" = [
+    { "Configuration" = "reference/configuration.md" },
+    { "Errors" = "reference/errors.md" },
+    { "Duration Format" = "reference/durations.md" },
+    { "Troubleshooting" = "reference/troubleshooting.md" },
+  ]},
+]
+
+[project.theme]
+logo = "assets/logo.png"
+favicon = "assets/logo.png"
+language = "en"
+
+features = [
+  "navigation.instant",
+  "navigation.instant.prefetch",
+  "navigation.tracking",
+  "navigation.tabs",
+  "navigation.sections",
+  "navigation.top",
+  "navigation.footer",
+  "search.highlight",
+  "content.code.copy",
+  "content.code.annotate",
+  "content.code.select",
+  "content.action.edit",
+  "content.tooltips",
+]
+
+[[project.theme.palette]]
+scheme = "default"
+primary = "green"
+accent = "teal"
+toggle.icon = "lucide/sun"
+toggle.name = "Switch to dark mode"
+
+[[project.theme.palette]]
+scheme = "slate"
+primary = "green"
+accent = "teal"
+toggle.icon = "lucide/moon"
+toggle.name = "Switch to light mode"
+
+[project.theme.icon]
+repo = "fontawesome/brands/github"
+
+[[project.extra.social]]
+icon = "fontawesome/brands/github"
+link = "https://github.com/gauthierpiarrette/timefence"
+
+[[project.extra.social]]
+icon = "fontawesome/brands/python"
+link = "https://pypi.org/project/timefence/"
+
+[project.plugins.mkdocstrings]
+enabled = true
+
+[project.plugins.mkdocstrings.handlers.python]
+paths = ["src"]
+
+[project.plugins.mkdocstrings.handlers.python.options]
+show_source = true
+show_root_heading = true
+show_root_full_path = false
+show_symbol_type_heading = true
+show_symbol_type_toc = true
+members_order = "source"
+docstring_style = "google"
+merge_init_into_class = true
+show_if_no_docstring = false
+signature_crossrefs = true
