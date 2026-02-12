@@ -1,0 +1,61 @@
+name: Bug Report
+description: Something isn't working as expected
+labels: ["bug"]
+body:
+  - type: textarea
+    id: what-happened
+    attributes:
+      label: What happened?
+      description: Describe the bug. What did you expect vs what actually happened?
+      placeholder: |
+        Expected: timefence audit reports all features as clean
+        Actual: timefence audit crashes with KeyError on feature "country"
+    validations:
+      required: true
+
+  - type: textarea
+    id: reproduce
+    attributes:
+      label: Steps to reproduce
+      description: Minimal code or CLI commands to reproduce the issue.
+      render: bash
+      placeholder: |
+        pip install timefence
+        timefence audit train.parquet --features features.py --keys user_id --label-time label_time
+    validations:
+      required: true
+
+  - type: textarea
+    id: error-output
+    attributes:
+      label: Error output
+      description: Paste the full error message or traceback.
+      render: text
+    validations:
+      required: false
+
+  - type: input
+    id: timefence-version
+    attributes:
+      label: Timefence version
+      description: Output of `timefence --version`
+      placeholder: "0.9.1"
+    validations:
+      required: true
+
+  - type: input
+    id: python-version
+    attributes:
+      label: Python version
+      description: Output of `python --version`
+      placeholder: "3.11.3"
+    validations:
+      required: true
+
+  - type: input
+    id: os
+    attributes:
+      label: Operating system
+      placeholder: "macOS 14.2 / Ubuntu 22.04 / Windows 11"
+    validations:
+      required: false
