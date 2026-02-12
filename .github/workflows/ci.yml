@@ -38,3 +38,13 @@ jobs:
         with:
           file: coverage.xml
           fail_ci_if_error: false
+
+  ci-success:
+    name: CI
+    needs: test
+    runs-on: ubuntu-latest
+    if: always()
+    steps:
+      - name: Check test matrix success
+        if: needs.test.result != 'success'
+        run: exit 1
