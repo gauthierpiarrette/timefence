@@ -17,3 +17,4 @@ htmlcov/
 .timefence/
 site/
 uv.lock
+.DS_Store
